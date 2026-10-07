@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+
+<html lang="ko">
+
+<head>
+  <meta charset="utf-8">
+
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src 'self' file: data:; connect-src 'none'; base-uri 'none'; form-action 'none';">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  
+
+  <title>PoP 게이트웨이 401/403/400 진단기</title>
+  <link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+
+  <div class="container">
+
+        <header>
+      <h1>FIDO2 PoP 진단기</h1>
+      <p>이 도구는 <a href="https://altdmfk.github.io/fido2-pop-gateway/" target="_blank">FIDO2 PoP 게이트웨이 프로젝트</a>의 검증 로직(1~5단계)을 시뮬레이션하는 로컬 샌드박스입니다.</p>
+      <div class="alert info">
+        API가 '401 Unauthorized'를 반환할 때, 서명된 요청을 붙여넣어 어느 단계에서 실패했는지 확인할 수 있습니다.<br>
+        (Authorization 헤더의 JWT 디코딩 및 바인딩 검증 등 서버 상태가 필요한 로직은 제외됩니다.)
+      </div>
+    </header>
+
+
+
+    <div class="demo-buttons">
+
+      <button id="btn-demo-valid" class="btn-demo">✅ 정상적인 요청 예시</button>
+
+      <button id="btn-demo-unsorted" class="btn-demo">❌ 실수로 쿼리를 미정렬한 예시</button>
+
+      <button id="btn-demo-method" class="btn-demo">❌ 대소문자(Method)를 틀린 예시</button>
+
+      <button id="btn-demo-expired" class="btn-demo">❌ 타임스탬프가 만료된 예시</button>
+
+    </div>
+
+
+
+    <div class="main-content">
+
+      <div class="input-section">
+
+        <h3>1. 요청 데이터 (HTTP Request)</h3>
+
+        <div class="form-group">
+
+          <label>HTTP 메서드 및 URL</label>
+
+          <div class="url-input-group">
+
+            <input type="text" id="req-method" placeholder="POST" value="POST">
+
+            <input type="text" id="req-url" placeholder="https://api.example.com/v1/transfer?currency=USD&type=internal">
+
+          </div>
+
+        </div>
+
+        
+
+        <div class="form-group">
+
+          <label>요청 본문 (JSON Body)</label>
+
+          <textarea id="req-body" rows="4" placeholder='{"amount":1000,"to":"alice"}'></textarea>
+
+        </div>
+
+
+
+        <div class="form-group">
+
+          <label>서명 관련 헤더</label>
+
+          <div class="headers-grid">
+
+            
+            <label>X-FIDO2-Credential-ID (크리덴셜 식별자)</label>
+            <input type="text" id="req-credential-id" placeholder="Base64url Credential ID">
+
+            <label>X-FIDO2-Nonce (일회성 난수)</label>
+
+            <input type="text" id="req-nonce" placeholder="n-123456789">
+
+            
+
+            <label>X-FIDO2-Timestamp (서명 생성 시간)</label>
+
+            <input type="text" id="req-timestamp" placeholder="1791344933">
+
+            
+
+            <label>X-Body-Digest (본문 해시)</label>
+
+            <input type="text" id="req-digest" placeholder="sha256=e3b0c442...">
+
+            
+
+            <label>X-FIDO2-Signature (Base64url 서명값)</label>
+
+            <input type="text" id="req-signature" placeholder="Signature string...">
+
+          </div>
+
+        </div>
+
+
+
+        <h3>2. 공개키 (PEM)</h3>
+
+        <textarea id="req-pubkey" rows="4" placeholder="-----BEGIN PUBLIC KEY-----..."></textarea>
+
+
+
+        <div class="action-bar">
+
+          <div class="eval-time">
+
+            <label>평가 기준 시각 (Unix Timestamp):</label>
+
+            <input type="number" id="eval-timestamp">
+
+            <button id="btn-now" class="btn-small">현재 시간</button>
+
+          </div>
+
+          <button id="btn-diagnose" class="btn-primary">진단 시작</button>
+
+        </div>
+
+      </div>
+
+
+
+      <div class="result-section">
+
+        <h3>진단 결과</h3>
+
+        <div id="result-panel" class="result-panel empty">
+
+          <p class="placeholder-text">왼쪽에서 데이터를 입력하고 '진단 시작'을 눌러주세요.</p>
+
+        </div>
+
+        
+
+        <div class="overhead-info" id="overhead-info">
+
+          <h4>💡 페이로드 절감 효과 (논문 수치 반영)</h4>
+
+          <p>입력된 서명 길이를 보면 <strong>ECDSA P-256</strong> 알고리즘이 사용되었습니다.<br>
+
+      이는 논문의 실측 결과에 따라 RSA-2048(약 499 Bytes) 대비 서명 헤더 크기를 <strong>약 51.3% (243 Bytes로) 절감</strong>한 규격입니다.</p>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+
+  <script src="fixtures.js"></script>
+
+  <script src="diagnose-core.js"></script>
+
+  <script src="app.js"></script>
+
+</body>
+
+</html>
+
