@@ -15,16 +15,24 @@ document.addEventListener('DOMContentLoaded', () => {
             alert("해당 데모 케이스를 찾을 수 없습니다.");
             return;
         }
-        document.getElementById('req-method').value = fixture.method;
-        document.getElementById('req-url').value = `https://${fixture.host}${fixture.path}?${fixture.query}`;
-        document.getElementById('req-body').value = fixture.body;
-        document.getElementById('req-nonce').value = fixture.nonce;
-        document.getElementById('req-timestamp').value = fixture.timestamp;
-        document.getElementById('req-signature').value = fixture.signature;
-        document.getElementById('req-digest').value = fixture.digest || '';
-        document.getElementById('req-credential-id').value = fixture.credentialId || 'test-cred-id';
-        document.getElementById('req-pubkey').value = window.FIXTURES.public_key;
-        evalTimeInput.value = fixture.timestamp; 
+        
+        const setVal = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.value = val;
+        };
+
+        setVal('req-method', fixture.method);
+        setVal('req-url', `https://${fixture.host}${fixture.path}?${fixture.query}`);
+        setVal('req-body', fixture.body);
+        setVal('req-nonce', fixture.nonce);
+        setVal('req-timestamp', fixture.timestamp);
+        setVal('req-signature', fixture.signature);
+        setVal('req-digest', fixture.digest || '');
+        setVal('req-credential-id', fixture.credentialId || 'test-cred-id');
+        setVal('req-pubkey', window.FIXTURES.public_key || '-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEgHsBt/wr3i0Y+5QEk7rVWqy/WiAp\n2BE0Fh98ukGLUupf0yKXbYwjrKKNGb+RWKp8kXdEVAYG2ExSBg3TLqgM6g==\n-----END PUBLIC KEY-----\n');
+        
+        const evalTimeInput = document.getElementById('eval-timestamp');
+        if (evalTimeInput) evalTimeInput.value = window.FIXTURES.eval_time;
     };
 
     document.getElementById('btn-demo-valid').addEventListener('click', () => loadDemo('valid'));
@@ -40,12 +48,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const inputs = {
             method: document.getElementById('req-method').value,
             urlStr: document.getElementById('req-url').value,
-            bodyStr: document.getElementById('req-body').value,
+            bodyStr: document.getElementById('req-body').value.replace(/\r\n/g, '\n'),
             nonce: document.getElementById('req-nonce').value,
             timestampStr: document.getElementById('req-timestamp').value,
             signature: document.getElementById('req-signature').value,
             pubkeyPem: document.getElementById('req-pubkey').value,
             reqDigest: document.getElementById('req-digest').value,
+            credentialId: document.getElementById('req-credential-id').value,
             evalTime: parseInt(evalTimeInput.value, 10)
         };
 
