@@ -80,32 +80,13 @@ h3 { margin-top: 0; border-bottom: 2px solid var(--border-color); padding-bottom
   font-size: 0.9rem;
 }
 
-input[type="text"], input[type="number"], textarea {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-family: monospace;
-  box-sizing: border-box;
-}
+
 
 .url-input-group { display: flex; gap: 8px; }
 
-.headers-grid {
-  display: grid;
-  grid-template-columns: 150px 1fr;
-  align-items: center;
-  gap: 8px;
-}
 
-.action-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-color);
-}
+
+
 
 .btn-primary {
   background: var(--primary-color);
@@ -118,13 +99,7 @@ input[type="text"], input[type="number"], textarea {
 }
 .btn-primary:hover { background: #1d4ed8; }
 
-.btn-small {
-  background: var(--surface-color);
-  border: 1px solid var(--border-color);
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
+
 
 .result-panel {
   min-height: 200px;
@@ -202,16 +177,17 @@ input[type="text"], input[type="number"], textarea {
 
 #overhead-info { display: none; }
 
+
 .tooltip-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: var(--text-muted);
   color: white;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: bold;
   margin-left: 4px;
   cursor: help;
@@ -221,32 +197,85 @@ input[type="text"], input[type="number"], textarea {
 .tooltip-icon:hover::after {
   content: attr(data-tooltip);
   position: absolute;
-  bottom: 120%;
+  top: 130%; 
   left: 50%;
-  transform: translateX(-50%);
-  background: #333;
-  color: #fff;
-  padding: 6px 10px;
+  transform: translateX(-30%); /* Adjusted so it doesn't fly too far left or right */
+  background: #1e293b;
+  color: #f8fafc;
+  padding: 8px 12px;
   border-radius: 6px;
   white-space: normal;
   width: max-content;
-  max-width: 250px;
-  font-size: 11px;
+  max-width: 220px;
+  font-size: 12px;
   line-height: 1.4;
   font-weight: normal;
-  z-index: 10;
+  z-index: 99999;
   pointer-events: none;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.2);
 }
 .tooltip-icon:hover::before {
   content: '';
   position: absolute;
-  bottom: 100%;
+  top: 100%;
   left: 50%;
   transform: translateX(-50%);
-  border: 4px solid transparent;
-  border-top-color: #333;
-  margin-bottom: -2px;
-  z-index: 10;
+  border: 5px solid transparent;
+  border-bottom-color: #1e293b;
+  margin-top: 2px;
+  z-index: 99999;
   pointer-events: none;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+.action-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+  gap: 16px;
+}
+
+
+.btn-large {
+  padding: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 6px;
+}
+
+input[type="text"], input[type="number"], textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-family: monospace;
+  box-sizing: border-box;
+  font-size: 0.9rem;
+}
+.btn-small {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  padding: 0 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.btn-small:hover { background-color: #f1f5f9; }

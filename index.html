@@ -12,7 +12,7 @@
   
 
   <title>PoP 게이트웨이 401/403/400 진단기</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=8">
 
 </head>
 
@@ -53,13 +53,19 @@
 
         <div class="form-group">
 
-          <label>HTTP 메서드 및 URL <span class="tooltip-icon" data-tooltip="게이트웨이가 검사할 원본 요청의 메서드와 URL입니다.">?</span></label>
+          <label>HTTP 메서드 및 URL <span class="tooltip-icon" data-tooltip="서버로 보내는 주소와 방식(GET, POST 등)입니다. 한 글자라도 다르면 검증에 실패합니다.">?</span></label>
 
           <div class="url-input-group">
 
-            <input type="text" id="req-method" placeholder="POST" value="POST">
+            <select id="req-method" style="width: 100px; padding: 4px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.9rem; height: 28px;">
+              <option value="GET">GET</option>
+              <option value="POST" selected>POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+              <option value="PATCH">PATCH</option>
+            </select>
 
-            <input type="text" id="req-url" placeholder="https://api.example.com/v1/transfer?currency=USD&type=internal">
+            <input type="text" id="req-url" maxlength="2048" placeholder="https://api.example.com/v1/transfer?currency=USD&type=internal">
 
           </div>
 
@@ -69,9 +75,9 @@
 
         <div class="form-group">
 
-          <label>요청 본문 (JSON Body) <span class="tooltip-icon" data-tooltip="스트리밍 해시 대조에 사용될 원본 본문(Payload)입니다.">?</span></label>
+          <label>요청 본문 (JSON Body) <span class="tooltip-icon" data-tooltip="서버로 보내는 실제 데이터 내용입니다. 해커가 내용을 바꾸면 즉시 차단됩니다.">?</span></label>
 
-          <textarea id="req-body" rows="2" placeholder='{"amount":1000,"to":"alice"}'></textarea>
+          <textarea id="req-body" maxlength="50000" rows="2" placeholder='{"amount":1000,"to":"alice"}'></textarea>
 
         </div>
 
@@ -81,59 +87,47 @@
 
           <label>서명 관련 헤더</label>
 
-          <div class="headers-grid">
+                    <div class="form-group">
+            <label>Credential-ID <span class="tooltip-icon" data-tooltip="누가 보낸 요청인지 확인하기 위한 사용자(기기) 고유 번호입니다. 아이디와 비슷합니다.">?</span></label>
+            <input type="text" id="req-credential-id" maxlength="256" placeholder="Base64url Credential ID">
+          </div>
+          <div class="form-group">
+            <label>Nonce <span class="tooltip-icon" data-tooltip="해커가 똑같은 요청을 훔쳐서 두 번 보내는 것을 막기 위한 일회용 암호문입니다.">?</span></label>
 
-            
-            <label>X-FIDO2-Credential-ID <span class="tooltip-icon" data-tooltip="서명 검증에 쓰일 공개키를 식별하는 ID입니다.">?</span></label>
-            <input type="text" id="req-credential-id" placeholder="Base64url Credential ID">
+            <input type="text" id="req-nonce" maxlength="128" placeholder="n-123456789">
+          </div>
+          <div class="form-group">
+            <label>Timestamp <span class="tooltip-icon" data-tooltip="이 요청이 만들어진 시간입니다. 너무 오래된 요청(예: 1분 이상 경과)은 거부됩니다.">?</span></label>
 
-            <label>X-FIDO2-Nonce <span class="tooltip-icon" data-tooltip="재전송 공격을 막기 위해 1회만 사용되는 난수(16바이트)입니다.">?</span></label>
+            <input type="text" id="req-timestamp" maxlength="20" maxlength="20" placeholder="1791344933">
+          </div>
+          <div class="form-group">
+            <label>Body-Digest <span class="tooltip-icon" data-tooltip="본문(데이터)이 중간에 조작되지 않았는지 확인하기 위한 요약본입니다.">?</span></label>
 
-            <input type="text" id="req-nonce" placeholder="n-123456789">
+            <input type="text" id="req-digest" maxlength="256" placeholder="sha256=e3b0c442...">
+          </div>
+          <div class="form-group">
+            <label>Signature <span class="tooltip-icon" data-tooltip="본인이 보냈다는 것을 암호학적으로 증명하는 디지털 도장(전자서명)입니다.">?</span></label>
 
-            
-
-            <label>X-FIDO2-Timestamp <span class="tooltip-icon" data-tooltip="서명된 시간(Unix Timestamp). 게이트웨이 시간과 60초 이내여야 합니다.">?</span></label>
-
-            <input type="text" id="req-timestamp" placeholder="1791344933">
-
-            
-
-            <label>X-Body-Digest <span class="tooltip-icon" data-tooltip="본문의 무결성을 검증하기 위한 Base64url 해시값입니다.">?</span></label>
-
-            <input type="text" id="req-digest" placeholder="sha256=e3b0c442...">
-
-            
-
-            <label>X-FIDO2-Signature <span class="tooltip-icon" data-tooltip="위 헤더와 본문 해시를 합쳐 FIDO 인증기로 서명한 ECDSA 서명값입니다.">?</span></label>
-
-            <input type="text" id="req-signature" placeholder="Signature string...">
-
+            <input type="text" id="req-signature" maxlength="512" placeholder="Signature string...">
           </div>
 
         </div>
+        <h3>2. 공개키 (PEM) <span class="tooltip-icon" data-tooltip="디지털 도장(서명)이 진짜인지 확인하기 위한 열쇠입니다. 원래는 안전하게 DB에 저장되어 있습니다.">?</span></h3>
 
-
-
-        <h3>2. 공개키 (PEM) <span class="tooltip-icon" data-tooltip="서명을 검증할 공개키. 실제 게이트웨이는 Credential-ID로 DB에서 가져옵니다.">?</span></h3>
-
-        <textarea id="req-pubkey" rows="2" placeholder="-----BEGIN PUBLIC KEY-----..."></textarea>
+        <textarea id="req-pubkey" maxlength="2048" rows="2" placeholder="-----BEGIN PUBLIC KEY-----..."></textarea>
 
 
 
         <div class="action-bar">
 
-          <div class="eval-time">
-
-            <label>평가 기준 시각 (Unix Timestamp):</label>
-
-            <input type="number" id="eval-timestamp">
-
-            <button id="btn-now" class="btn-small">현재 시간</button>
-
+          <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%;">
+            <label style="white-space: nowrap; margin: 0;">평가 기준 시각 (Unix Timestamp):</label>
+            <input type="number" id="eval-timestamp" style="flex: 1; margin: 0;">
+            <button id="btn-now" class="btn-small" style="margin: 0; height: 28px;">현재 시각</button>
           </div>
 
-          <button id="btn-diagnose" class="btn-primary">진단 시작</button>
+          <button id="btn-diagnose" class="btn-primary btn-large">진단 시작</button>
 
         </div>
 
@@ -171,11 +165,11 @@
 
 
 
-  <script src="fixtures.js"></script>
+  <script src="fixtures.js?v=8"></script>
 
-  <script src="diagnose-core.js"></script>
+  <script src="diagnose-core.js?v=8"></script>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=8"></script>
 
 </body>
 
