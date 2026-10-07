@@ -1,0 +1,285 @@
+{
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+  "cases": [
+    {
+      "case": "정상",
+      "desc": "변경 없음",
+      "status": 200,
+      "detail": "",
+      "gw_stage": "Pass",
+      "app_stage": "Pass",
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "511ab716-6ca3-4dd2-a5f5-8891688c4e44",
+        "timestampStr": "1791359635",
+        "signature": "zeFWor1fcfTvmYezJ1BUE4GHH6b1naVWq6--IBAeOJ3dbpHZK-K8kGoe1ZJaiwE3xifAxmP2Efhaj-7vnF5UdA",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359635
+      }
+    },
+    {
+      "case": "Nonce 재사용",
+      "desc": "직전 요청의 Nonce를 다시 사용",
+      "status": 401,
+      "detail": "Invalid or replayed nonce",
+      "gw_stage": 3,
+      "app_stage": "판단 불가",
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "511ab716-6ca3-4dd2-a5f5-8891688c4e44",
+        "timestampStr": "1791359635",
+        "signature": "rBq0ErB2fYhbEm5FD3KLKyhSKO13sILE3tv6-A3n3SsjJhCKK2PxEKwGYX3IMg3-raoyiiiINBxP_man7g5ITQ",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359635
+      }
+    },
+    {
+      "case": "쿼리 변조",
+      "desc": "요청 시 쿼리를 a=2로 변조 (서명은 a=1)",
+      "status": 403,
+      "detail": "Invalid FIDO2 PoP signature",
+      "gw_stage": 4,
+      "app_stage": 4,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=2",
+        "bodyStr": "hello",
+        "nonce": "427cbdb2-9ccc-439f-ba42-b4ec5160604a",
+        "timestampStr": "1791359635",
+        "signature": "vNLkhjgTgF1M2Q8rJ8xJwQ5xTShVoDALRtGJMJayKpHnbcmgViJTcLCDrcNW9TvyOrZGectAjysM736b_jrSYg",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359635
+      }
+    },
+    {
+      "case": "서명 교체",
+      "desc": "다른 서명 문자열로 교체",
+      "status": 403,
+      "detail": "Invalid FIDO2 PoP signature",
+      "gw_stage": 4,
+      "app_stage": 4,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "37e2ba05-388d-4f71-ae65-0dab779a14e2",
+        "timestampStr": "1791359635",
+        "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359635
+      }
+    },
+    {
+      "case": "본문 변조 (digest 헤더 원본 유지)",
+      "desc": "요청 시 본문을 hallo로 변조",
+      "status": 400,
+      "detail": "Body digest mismatch",
+      "gw_stage": 5,
+      "app_stage": 5,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hallo",
+        "nonce": "40152349-ea7b-4128-9443-9790e72450e7",
+        "timestampStr": "1791359636",
+        "signature": "G-5l2wUVarQPt3FssFyyiJtzHwPx0UEEHzXnFXm-ycVGp9c_W4Qq78sEsprnb4MtNM_gcTm8Jxm03Kp6ANrtEA",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "타임스탬프 오프셋",
+      "desc": "헤더의 Timestamp를 과거(100)로 변조",
+      "status": 401,
+      "detail": "Timestamp expired",
+      "gw_stage": 2,
+      "app_stage": 2,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "4e3a8c31-8ec2-490e-9ae9-bbf4ef0a4384",
+        "timestampStr": "100",
+        "signature": "33RusngpBM2GFE9mYwQlFV0jcsgH7UTI-CkWnv8fBBxNKfuwxdOZ_Q00qkXUumdXLSgIBoVzPZDK1Ddx0XthDQ",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "서명 통과+digest 헤더만 틀림",
+      "desc": "헤더의 Body-Digest만 변조",
+      "status": 403,
+      "detail": "Invalid FIDO2 PoP signature",
+      "gw_stage": 4,
+      "app_stage": 4,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "654b7214-cda3-4600-ae6a-e9a31040c346",
+        "timestampStr": "1791359636",
+        "signature": "cpdw9PA7ZRD_Zyh6NPSd_bvxjnbdYbRqpkxDd7kWKpBYXdC4AnMW-6ZFLfruoVF-OAioSXXn524jHiTVS4SJQQ",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=wrong",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "서명과 digest 둘 다 틀림",
+      "desc": "서명과 Body-Digest 모두 변조",
+      "status": 403,
+      "detail": "Invalid FIDO2 PoP signature",
+      "gw_stage": 4,
+      "app_stage": 4,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "8ab3eb43-7ec2-48c4-a253-2b57e15d22ec",
+        "timestampStr": "1791359636",
+        "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=wrong",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "digest 헤더 누락",
+      "desc": "X-Body-Digest 헤더 삭제",
+      "status": 400,
+      "detail": "Missing or invalid X-Body-Digest header",
+      "gw_stage": 4,
+      "app_stage": 4,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "99734ea3-6e99-4ae4-930e-2d5f317c4588",
+        "timestampStr": "1791359636",
+        "signature": "Gqua3bQrZz1e4uvSjAYybRpsI-2VlcpJOxVQmvWA_wFW4Gzaj4laWuu4U2oqb0dKLygS68j5qotDEm7FPMKONg",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "Credential-ID 누락",
+      "desc": "X-FIDO2-Credential-ID 헤더 삭제",
+      "status": 401,
+      "detail": "Missing required FIDO2 PoP headers",
+      "gw_stage": 1,
+      "app_stage": 1,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "c7ad48ad-6d2e-41ac-831e-1d964675967d",
+        "timestampStr": "1791359636",
+        "signature": "MxfEk6tjPOzRff81QsFXuPTdI4hvMZEupdyISRfw62lHAoNfaorADh1pmIpL32Q98MLNpmIj69FLwsaVvFTN1g",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "복합: Timestamp 만료 + Digest 누락",
+      "desc": "과거 Timestamp + X-Body-Digest 헤더 삭제",
+      "status": 401,
+      "detail": "Timestamp expired",
+      "gw_stage": 2,
+      "app_stage": 2,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "7f04193f-694a-48e7-98b9-2ff7a493321d",
+        "timestampStr": "100",
+        "signature": "GXMzvck2ONqzYq4d2vmx2C-YPaZ40nRdhLV7G7Nn2TmbIOE2y_HxFy631CzAmI_jg-vnoK3J5_sOtBy63Q2rYg",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "복합: Credential-ID 누락 + 서명 오류",
+      "desc": "X-FIDO2-Credential-ID 헤더 삭제 + 서명 변조",
+      "status": 401,
+      "detail": "Missing required FIDO2 PoP headers",
+      "gw_stage": 1,
+      "app_stage": 1,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "08cd759f-c867-4b64-89ab-47af60a00849",
+        "timestampStr": "1791359636",
+        "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "복합: 서명 오류 + 본문 변조",
+      "desc": "서명 변조 + 본문 변조",
+      "status": 403,
+      "detail": "Invalid FIDO2 PoP signature",
+      "gw_stage": 4,
+      "app_stage": 4,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hallo",
+        "nonce": "db80e0a0-3b65-4fcb-a8af-2059937643e6",
+        "timestampStr": "1791359636",
+        "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359636
+      }
+    },
+    {
+      "case": "복합: 서명 오류 + Digest 누락",
+      "desc": "서명 변조 + X-Body-Digest 헤더 삭제",
+      "status": 400,
+      "detail": "Missing or invalid X-Body-Digest header",
+      "gw_stage": 4,
+      "app_stage": 4,
+      "inputs": {
+        "method": "POST",
+        "urlStr": "https://testserver/api/v1/resource?a=1",
+        "bodyStr": "hello",
+        "nonce": "c313dda1-c51a-41ac-b2e5-3525c9ab70d6",
+        "timestampStr": "1791359636",
+        "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEODC62qHyT9pCICwnSrVadILeRu+M\nObBCLHLOLJJMqdZV+BtQFWzW9QPzMNwCj0Rm8i/KaG9hDtdpxg2ip67DGg==\n-----END PUBLIC KEY-----\n",
+        "reqDigest": "",
+        "credentialId": "PX9ggC8UD4GL6GTCROj3Edi1X2I5Zc6Vo2KHyV56lE8",
+        "evalTime": 1791359636
+      }
+    }
+  ]
+}
