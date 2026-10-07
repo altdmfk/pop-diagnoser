@@ -53,7 +53,7 @@
 
         <div class="form-group">
 
-          <label>HTTP 메서드 및 URL</label>
+          <label>HTTP 메서드 및 URL <span class="tooltip-icon" data-tooltip="게이트웨이가 검사할 원본 요청의 메서드와 URL입니다.">?</span></label>
 
           <div class="url-input-group">
 
@@ -69,9 +69,9 @@
 
         <div class="form-group">
 
-          <label>요청 본문 (JSON Body)</label>
+          <label>요청 본문 (JSON Body) <span class="tooltip-icon" data-tooltip="스트리밍 해시 대조에 사용될 원본 본문(Payload)입니다.">?</span></label>
 
-          <textarea id="req-body" rows="4" placeholder='{"amount":1000,"to":"alice"}'></textarea>
+          <textarea id="req-body" rows="2" placeholder='{"amount":1000,"to":"alice"}'></textarea>
 
         </div>
 
@@ -84,28 +84,28 @@
           <div class="headers-grid">
 
             
-            <label>X-FIDO2-Credential-ID (크리덴셜 식별자)</label>
+            <label>X-FIDO2-Credential-ID <span class="tooltip-icon" data-tooltip="서명 검증에 쓰일 공개키를 식별하는 ID입니다.">?</span></label>
             <input type="text" id="req-credential-id" placeholder="Base64url Credential ID">
 
-            <label>X-FIDO2-Nonce (일회성 난수)</label>
+            <label>X-FIDO2-Nonce <span class="tooltip-icon" data-tooltip="재전송 공격을 막기 위해 1회만 사용되는 난수(16바이트)입니다.">?</span></label>
 
             <input type="text" id="req-nonce" placeholder="n-123456789">
 
             
 
-            <label>X-FIDO2-Timestamp (서명 생성 시간)</label>
+            <label>X-FIDO2-Timestamp <span class="tooltip-icon" data-tooltip="서명된 시간(Unix Timestamp). 게이트웨이 시간과 60초 이내여야 합니다.">?</span></label>
 
             <input type="text" id="req-timestamp" placeholder="1791344933">
 
             
 
-            <label>X-Body-Digest (본문 해시)</label>
+            <label>X-Body-Digest <span class="tooltip-icon" data-tooltip="본문의 무결성을 검증하기 위한 Base64url 해시값입니다.">?</span></label>
 
             <input type="text" id="req-digest" placeholder="sha256=e3b0c442...">
 
             
 
-            <label>X-FIDO2-Signature (Base64url 서명값)</label>
+            <label>X-FIDO2-Signature <span class="tooltip-icon" data-tooltip="위 헤더와 본문 해시를 합쳐 FIDO 인증기로 서명한 ECDSA 서명값입니다.">?</span></label>
 
             <input type="text" id="req-signature" placeholder="Signature string...">
 
@@ -115,9 +115,9 @@
 
 
 
-        <h3>2. 공개키 (PEM)</h3>
+        <h3>2. 공개키 (PEM) <span class="tooltip-icon" data-tooltip="서명을 검증할 공개키. 실제 게이트웨이는 Credential-ID로 DB에서 가져옵니다.">?</span></h3>
 
-        <textarea id="req-pubkey" rows="4" placeholder="-----BEGIN PUBLIC KEY-----..."></textarea>
+        <textarea id="req-pubkey" rows="2" placeholder="-----BEGIN PUBLIC KEY-----..."></textarea>
 
 
 
