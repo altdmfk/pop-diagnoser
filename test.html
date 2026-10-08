@@ -2,6 +2,8 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src 'self' file: data:; connect-src 'none'; base-uri 'none'; form-action 'none';">
+    <link rel="stylesheet" href="style.css">
     <title>PoP Diagnoser Tests</title>
 </head>
 <body>
@@ -10,27 +12,6 @@
     <script src="fixtures.js"></script>
     <script src="diagnose-core.js"></script>
     <script src="test.js"></script>
-    <script>
-        // Note: test.js was written for Node. To make it run in browser, 
-        // we intercept console.log to print to DOM.
-        const resultsDiv = document.getElementById('results');
-        const originalLog = console.log;
-        console.log = function(...args) {
-            originalLog.apply(console, args);
-            const p = document.createElement('p');
-            p.textContent = args.join(' ');
-            if (args[0] && args[0].includes('[FAIL]')) p.style.color = 'red';
-            if (args[0] && args[0].includes('Tests completed')) p.style.fontWeight = 'bold';
-            resultsDiv.appendChild(p);
-        };
-        // Run tests (test.js executes automatically)
-        setTimeout(() => {
-            if (typeof window.FIXTURES !== 'undefined') {
-                runTests().catch(console.error);
-            } else {
-                console.log("[ERROR] FIXTURES not loaded");
-            }
-        }, 100);
-    </script>
+    <script src="test-runner.js"></script>
 </body>
 </html>

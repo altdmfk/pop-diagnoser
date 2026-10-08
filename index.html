@@ -57,7 +57,7 @@
 
           <div class="url-input-group">
 
-            <select id="req-method" style="width: 100px; padding: 4px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.9rem; height: 28px;">
+            <select id="req-method">
               <option value="GET">GET</option>
               <option value="POST" selected>POST</option>
               <option value="PUT">PUT</option>
@@ -121,10 +121,10 @@
 
         <div class="action-bar">
 
-          <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%;">
-            <label style="white-space: nowrap; margin: 0;">평가 기준 시각 (Unix Timestamp):</label>
-            <input type="number" id="eval-timestamp" style="flex: 1; margin: 0;">
-            <button id="btn-now" class="btn-small" style="margin: 0; height: 28px;">현재 시각</button>
+          <div class="form-group eval-time-group">
+            <label>평가 기준 시각 (Unix Timestamp):</label>
+            <input type="number" id="eval-timestamp">
+            <button id="btn-now" class="btn-small">현재 시각</button>
           </div>
 
           <button id="btn-diagnose" class="btn-primary btn-large">진단 시작</button>

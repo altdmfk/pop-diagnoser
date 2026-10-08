@@ -279,3 +279,12 @@ input[type="text"], input[type="number"], textarea {
   transition: all 0.2s;
 }
 .btn-small:hover { background-color: #f1f5f9; }
+
+#req-method { width: 100px; padding: 4px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.9rem; height: 28px; }
+.eval-time-group { display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%; }
+.eval-time-group label { white-space: nowrap; margin: 0; }
+.eval-time-group input { flex: 1; margin: 0; }
+.eval-time-group button { margin: 0; height: 28px; }
+
+.failed { color: red; }
+.completed { font-weight: bold; }
