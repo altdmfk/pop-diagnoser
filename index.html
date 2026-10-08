@@ -37,101 +37,100 @@
 
       <button id="btn-demo-unsorted" class="btn-demo">❌ 실수로 쿼리를 미정렬한 예시</button>
 
-      <button id="btn-demo-method" class="btn-demo">❌ 대소문자(Method)를 틀린 예시</button>
+      <button id="btn-demo-method" class="btn-demo" title="네트워크로는 POST로 보냈지만, 서명할 때는 post로 해시한 상황입니다.">❌ 서명 시 소문자(post)로 잘못 암호화한 예시</button>
 
       <button id="btn-demo-expired" class="btn-demo">❌ 타임스탬프가 만료된 예시</button>
+      <button id="btn-clear-all" class="btn-demo" >🗑️ 전체 값 지우기</button>
 
     </div>
 
+    <div class="top-action-bar" >
+      <button id="btn-generate-test" class="btn-primary">🔧 내 입력값으로 서명 생성</button>
+      <button id="btn-diagnose" class="btn-primary">진단 시작</button>
+    </div>
 
+    <details class="memory-accordion">
+      <summary>📁 임시저장소 (슬롯 1~5)</summary>
+      <div class="memory-content" id="memory-slots-container">
+        <!-- Rendered via JS -->
+      </div>
+    </details>
 
     <div class="main-content">
 
       <div class="input-section">
-
-        <h3>1. 요청 데이터 (HTTP Request)</h3>
-
-        <div class="form-group">
-
-          <label>HTTP 메서드 및 URL <span class="tooltip-icon" data-tooltip="서버로 보내는 주소와 방식(GET, POST 등)입니다. 한 글자라도 다르면 검증에 실패합니다.">?</span></label>
-
-          <div class="url-input-group">
-
-            <select id="req-method">
-              <option value="GET">GET</option>
-              <option value="POST" selected>POST</option>
-              <option value="PUT">PUT</option>
-              <option value="DELETE">DELETE</option>
-              <option value="PATCH">PATCH</option>
-            </select>
-
-            <input type="text" id="req-url" maxlength="2048" placeholder="https://api.example.com/v1/transfer?currency=USD&type=internal">
-
-          </div>
-
+        <div class="tabs">
+          <button class="tab-btn active" data-target="tab-http">HTTP 요청</button>
+          <button class="tab-btn" data-target="tab-headers">서명 헤더</button>
+          <button class="tab-btn" data-target="tab-config">검증 설정</button>
         </div>
 
-        
-
-        <div class="form-group">
-
-          <label>요청 본문 (JSON Body) <span class="tooltip-icon" data-tooltip="서버로 보내는 실제 데이터 내용입니다. 해커가 내용을 바꾸면 즉시 차단됩니다.">?</span></label>
-
-          <textarea id="req-body" maxlength="50000" rows="2" placeholder='{"amount":1000,"to":"alice"}'></textarea>
-
+        <div id="tab-http" class="tab-pane active">
+          <div class="form-group">
+            <label>HTTP 메서드 및 URL</label>
+            <div class="field-desc">서버로 전송하는 HTTP 메서드와 전체 URL입니다. 쿼리 파라미터(?a=1)까지 정확히 일치해야 합니다.</div>
+            <div class="url-input-group">
+              <input type="text" id="req-method" list="method-list" value="POST" maxlength="20">
+              <datalist id="method-list">
+                <option value="GET"></option>
+                <option value="POST"></option>
+                <option value="PUT"></option>
+                <option value="DELETE"></option>
+                <option value="PATCH"></option>
+              </datalist>
+              <input type="text" id="req-url" maxlength="2048">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label>요청 본문 (JSON Body)</label>
+            <div class="field-desc">서버로 전송할 페이로드(JSON 등) 데이터입니다. 본문 내용이 1바이트라도 변경되면 검증에 실패합니다.</div>
+            <textarea id="req-body" maxlength="50000" rows="6"></textarea>
+          </div>
         </div>
 
-
-
-        <div class="form-group">
-
-          <label>서명 관련 헤더</label>
-
-                    <div class="form-group">
-            <label>Credential-ID <span class="tooltip-icon" data-tooltip="누가 보낸 요청인지 확인하기 위한 사용자(기기) 고유 번호입니다. 아이디와 비슷합니다.">?</span></label>
-            <input type="text" id="req-credential-id" maxlength="256" placeholder="Base64url Credential ID">
+        <div id="tab-headers" class="tab-pane">
+          <div class="form-group">
+            <label>Credential-ID</label>
+            <div class="field-desc">어떤 기기(인증장치)에서 서명했는지 식별하기 위한 고유 식별자(Credential ID)입니다.</div>
+            <input type="text" id="req-credential-id" maxlength="256">
           </div>
           <div class="form-group">
-            <label>Nonce <span class="tooltip-icon" data-tooltip="해커가 똑같은 요청을 훔쳐서 두 번 보내는 것을 막기 위한 일회용 암호문입니다.">?</span></label>
-
-            <input type="text" id="req-nonce" maxlength="128" placeholder="n-123456789">
+            <label>Nonce</label>
+            <div class="field-desc">재전송 공격(Replay Attack)을 방지하기 위해 클라이언트가 매 요청마다 새로 생성하는 1회용 난수(Random String)입니다.</div>
+            <input type="text" id="req-nonce" maxlength="128">
           </div>
           <div class="form-group">
-            <label>Timestamp <span class="tooltip-icon" data-tooltip="이 요청이 만들어진 시간입니다. 너무 오래된 요청(예: 1분 이상 경과)은 거부됩니다.">?</span></label>
-
-            <input type="text" id="req-timestamp" maxlength="20" maxlength="20" placeholder="1791344933">
+            <label>Timestamp</label>
+            <div class="field-desc">클라이언트가 서명을 생성한 시각(Unix Timestamp)입니다. 기준 시각(서버 시간) 대비 오차가 허용 범위를 벗어나면 만료 처리됩니다.</div>
+            <input type="text" id="req-timestamp" maxlength="20">
           </div>
           <div class="form-group">
-            <label>Body-Digest <span class="tooltip-icon" data-tooltip="본문(데이터)이 중간에 조작되지 않았는지 확인하기 위한 요약본입니다.">?</span></label>
-
-            <input type="text" id="req-digest" maxlength="256" placeholder="sha256=e3b0c442...">
+            <label>Body-Digest</label>
+            <div class="field-desc">요청 본문(Body) 데이터가 전송 도중 변조되지 않았음을 수학적으로 증명하는 해시(Hash) 요약본입니다.</div>
+            <input type="text" id="req-digest" maxlength="256">
           </div>
           <div class="form-group">
-            <label>Signature <span class="tooltip-icon" data-tooltip="본인이 보냈다는 것을 암호학적으로 증명하는 디지털 도장(전자서명)입니다.">?</span></label>
-
-            <input type="text" id="req-signature" maxlength="512" placeholder="Signature string...">
+            <label>Signature</label>
+            <div class="field-desc">본인이 보냈다는 것을 증명하는 전자서명입니다. ECDSA P-256 서명 기준, Base64url 디코딩 시 정확히 64바이트(r값 32바이트 + s값 32바이트)여야 합니다.</div>
+            <input type="text" id="req-signature" maxlength="512">
           </div>
-
         </div>
-        <h3>2. 공개키 (PEM) <span class="tooltip-icon" data-tooltip="디지털 도장(서명)이 진짜인지 확인하기 위한 열쇠입니다. 원래는 안전하게 DB에 저장되어 있습니다.">?</span></h3>
 
-        <textarea id="req-pubkey" maxlength="2048" rows="2" placeholder="-----BEGIN PUBLIC KEY-----..."></textarea>
-
-
-
-        <div class="action-bar">
-
-          <div class="form-group eval-time-group">
-            <label>평가 기준 시각 (Unix Timestamp):</label>
-            <input type="number" id="eval-timestamp">
+        <div id="tab-config" class="tab-pane">
+          <div class="form-group">
+            <label>공개키 (PEM)</label>
+            <div class="field-desc">전자서명의 유효성을 검증하기 위한 암호학적 공개키입니다. (PEM 형식 및 순수 Base64 문자열 모두 지원)</div>
+            <textarea id="req-pubkey" maxlength="2048" rows="6"></textarea>
+          </div>
+          
+          <div class="form-group eval-time-group" >
+            <label >평가 기준 시각 (Unix Timestamp):</label>
+            <input type="number" id="eval-timestamp" >
             <button id="btn-now" class="btn-small">현재 시각</button>
           </div>
-
-          <button id="btn-diagnose" class="btn-primary btn-large">진단 시작</button>
-
         </div>
-
-      </div>
+</div>
 
 
 
