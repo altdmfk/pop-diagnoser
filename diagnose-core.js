@@ -1,4 +1,39 @@
 const PopCore = (() => {
+
+function getJsonErrorSnippet(e, jsonStr) {
+    let msg = e.message;
+    try {
+        const match = msg.match(/line\s+(\d+)\s+column\s+(\d+)/i) || msg.match(/position\s+(\d+)/i);
+        if (match && jsonStr) {
+            let lineNum = 1, colNum = 1;
+            
+            if (msg.includes('line') && msg.includes('column')) {
+                lineNum = parseInt(match[1], 10);
+                colNum = parseInt(match[2], 10);
+            } else if (msg.includes('position')) {
+                const pos = parseInt(match[1], 10);
+                const upToPos = jsonStr.substring(0, pos);
+                const lines = upToPos.split('\n');
+                lineNum = lines.length;
+                colNum = lines[lines.length - 1].length + 1;
+            }
+            
+            const lines = jsonStr.split('\n');
+            if (lineNum > 0 && lineNum <= lines.length) {
+                const problemLine = lines[lineNum - 1];
+                let pointer = '';
+                for (let i = 0; i < colNum - 1; i++) {
+                    pointer += problemLine[i] === '\t' ? '\t' : ' ';
+                }
+                pointer += '▲ (여기 부근)';
+                msg = msg.replace(/at position.*$/, '').trim();
+                return `${msg}\n\n[발견된 위치 : ${lineNum}번째 줄]\n${problemLine}\n${pointer}`;
+            }
+        }
+    } catch (err) {}
+    return msg;
+}
+
     const _atob = typeof atob !== 'undefined' ? atob : (str) => Buffer.from(str, 'base64').toString('binary');
     const _btoa = typeof btoa !== 'undefined' ? btoa : (str) => Buffer.from(str, 'binary').toString('base64');
     const _crypto = typeof crypto !== 'undefined' ? crypto : require('crypto').webcrypto;
@@ -35,27 +70,49 @@ const PopCore = (() => {
     async function importPublicKey(pem) {
         const pemHeader = "-----BEGIN PUBLIC KEY-----";
         const pemFooter = "-----END PUBLIC KEY-----";
-        if (!pem.includes(pemHeader) || !pem.includes(pemFooter)) {
-            throw new Error("공개키(PEM) 형식이 올바르지 않습니다.");
+        
+        let hasHeader = pem.includes(pemHeader);
+        let hasFooter = pem.includes(pemFooter);
+        let pemContents = "";
+        
+        if (hasHeader && hasFooter) {
+            pemContents = pem.substring(pem.indexOf(pemHeader) + pemHeader.length, pem.indexOf(pemFooter)).replace(/\s/g, '');
+        } else if (!hasHeader && !hasFooter) {
+            // 태그가 둘 다 없으면, 순수 Base64 값만 넣었다고 간주하고 그대로 시도합니다.
+            pemContents = pem.replace(/\s/g, '');
+        } else {
+            // 태그가 하나만 있는 경우 실수로 잘린 것이므로 경고합니다.
+            let missing = !hasHeader ? "시작 태그(-----BEGIN PUBLIC KEY-----)" : "종료 태그(-----END PUBLIC KEY-----)";
+            throw new Error(`공개키 형식이 올바르지 않습니다. ${missing}가 잘려나갔습니다.\n아예 태그 없이 중간 값(Base64)만 넣으시거나, 양쪽 태그를 모두 포함해 주세요.`);
         }
-        const pemContents = pem.substring(pem.indexOf(pemHeader) + pemHeader.length, pem.indexOf(pemFooter)).replace(/\s/g, '');
+        
+        if (pemContents.length === 0) {
+            throw new Error("공개키 내부에 실제 키 데이터(Base64)가 비어 있습니다.");
+        }
+
         let binaryDerString;
         try {
             binaryDerString = _atob(pemContents);
         } catch (e) {
-            throw new Error("공개키(PEM) 디코딩에 실패했습니다.");
+            throw new Error("공개키 내부 데이터(Base64) 디코딩에 실패했습니다.\n공백 외의 잘못된 문자(한글, 특수기호 등)가 섞여 있는지 확인하세요.");
         }
+        
         const binaryDer = new Uint8Array(binaryDerString.length);
         for (let i = 0; i < binaryDerString.length; i++) {
             binaryDer[i] = binaryDerString.charCodeAt(i);
         }
-        return await _crypto.subtle.importKey(
-            "spki",
-            binaryDer.buffer,
-            { name: "ECDSA", namedCurve: "P-256" },
-            true,
-            ["verify"]
-        );
+        
+        try {
+            return await _crypto.subtle.importKey(
+                "spki",
+                binaryDer.buffer,
+                { name: "ECDSA", namedCurve: "P-256" },
+                true,
+                ["verify"]
+            );
+        } catch (e) {
+            throw new Error("공개키 데이터 분석(Import)에 실패했습니다. 키가 손상되었거나 유효한 ECDSA P-256 공개키가 아닐 수 있습니다. (상세 에러: " + e.message + ")");
+        }
     }
 
     function derToRaw(derBytes) {
@@ -126,6 +183,7 @@ const PopCore = (() => {
             tag: 'common-mistake',
             apply: async (req) => ({ ...req, method: req.method.toLowerCase() })
         },
+
         {
             id: 'path-trailing-slash-add',
             label: 'Path 끝에 슬래시(/) 추가',
@@ -186,17 +244,41 @@ const PopCore = (() => {
         
         const result = {
             stages: [],
+            warnings: [],
             error: null,
             firstFailedStage: null,
             expectedCanonical: "",
             hypothesisResult: null 
         };
 
+        // Stage 1: Headers presence
+        const headersPresent = !!(method && urlStr && nonce && timestampStr && signature && pubkeyPem && credentialId);
+        result.stages.push({
+            name: "1단계: 필수 데이터 서식 검사 (Offline)",
+            status: headersPresent ? "pass" : "fail",
+            reason: headersPresent ? "서명 검증에 필요한 모든 항목이 입력되었습니다. (주의: 본 도구는 오프라인 환경이므로 실제 URL 접속 여부나 JWT 토큰 유효성 검증은 생략하고 즉시 서명을 검증합니다.)" : "Method, URL, Nonce, Timestamp, 서명, Credential-ID 중 누락된 항목이 있습니다."
+        });
+        if (!headersPresent) { result.firstFailedStage = 1; return result; }
+
         // Inputs parsing & formatting checks
+        
+        if (bodyStr.trim()) {
+            try {
+                JSON.parse(bodyStr);
+            } catch (e) {
+                result.error = { message: `요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\n쉼표(,)나 따옴표(")가 빠졌거나 오타가 있는지 확인해 주세요.\n<div class="error-detail-box">📌 에러 상세:\n${getJsonErrorSnippet(e, bodyStr)}</div>` };
+                return result;
+            }
+        }
+
         let url;
-        try { url = new URL(urlStr); } 
-        catch (e) { 
-            result.error = { message: "올바른 URL을 입력해주세요." }; 
+        try { 
+            url = new URL(urlStr); 
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                throw new Error("http:// 또는 https:// 프로토콜이 아닙니다.");
+            }
+        } catch (e) { 
+            result.error = { message: `URL 형식이 올바르지 않습니다.\n💡 <strong>힌트:</strong> 반드시 'https://' 또는 'http://' 로 시작하는 전체 인터넷 주소를 입력해야 합니다. <span class="text-muted-span">(예: https://api.example.com/v1/tx)</span>\n<div class="error-detail-box">📌 에러 상세:\n${getJsonErrorSnippet(e, bodyStr)}</div>` }; 
             return result; 
         }
 
@@ -231,14 +313,7 @@ const PopCore = (() => {
             cleanReqDigest = reqDigest.replace(/^sha256=/i, '');
         }
         
-        // Stage 1: Headers presence
-        const headersPresent = !!(method && urlStr && nonce && timestampStr && signature && pubkeyPem && credentialId);
-        result.stages.push({
-            name: "1단계: 필수 헤더 검사 (Fast-Fail)",
-            status: headersPresent ? "partial" : "fail",
-            reason: headersPresent ? "필수 헤더 존재함 (단, Authorization은 검사 생략, 상태: 401 가능)" : "Method, URL, Nonce, Timestamp, 서명, Credential-ID 중 누락 (상태: 401)"
-        });
-        if (!headersPresent) { result.firstFailedStage = 1; return result; }
+
 
         // Stage 2: Timestamp
         const timeDiff = Math.abs(evalTime - timestamp);
@@ -255,12 +330,16 @@ const PopCore = (() => {
         result.stages.push({
             name: "3단계: Nonce 검증",
             status: noncePresent ? "unknown" : "fail",
-            reason: noncePresent ? "존재 및 형식 확인 (소비 여부 판단 불가: 서버 상태 필요)" : "Nonce가 비어 있습니다."
+            reason: noncePresent ? "Nonce 값이 입력되었습니다. (안내: Nonce는 해킹(재전송 공격)을 막기 위한 1회용 값입니다. 본 진단기는 오프라인 도구이므로 실제 서버의 DB를 조회하여 '이미 사용된 Nonce인지' 판단하는 과정은 생략됩니다.)" : "Nonce 값이 비어 있습니다."
         });
         if (!noncePresent && !result.firstFailedStage) result.firstFailedStage = 3;
 
+                let normalizedMethod = method.toUpperCase();
+        if (method !== normalizedMethod) {
+            result.warnings.push(`입력하신 HTTP 메서드('${method}')를 FIDO2 PoP 규격에 맞춰 대문자('${normalizedMethod}')로 강제 변환 후 진단했습니다.`);
+        }
         const baseReq = {
-            method: method.toUpperCase(),
+            method: normalizedMethod,
             host: host,
             path: path,
             query: query,
@@ -279,9 +358,10 @@ const PopCore = (() => {
         result.expectedCanonical = expectedCanonical;
 
         // Stage 4: Signature Math
-        let sigLengthValid = baseReq.parsedSignature.byteLength === 64;
+        let actualBytes = baseReq.parsedSignature ? baseReq.parsedSignature.byteLength : 0;
+        let sigLengthValid = actualBytes === 64;
         let sigStatus = "fail";
-        let sigReason = "형식 불일치 (64바이트 아님)";
+        let sigReason = `형식 불일치 (현재 디코딩된 크기: ${actualBytes}바이트. ECDSA P-256 서명은 r, s 각각 32바이트씩 총 64바이트여야 합니다.)`;
 
         if (sigLengthValid) {
             const baseVerify = await verifySig(cryptoKey, baseReq.parsedSignature, expectedCanonical);
@@ -313,10 +393,22 @@ const PopCore = (() => {
 
         // Stage 5: Digest Streaming (Only evaluated if Signature passes logically in gateway, but we evaluate all for diagnosis)
         let digestMatch = false;
+        let jsonParseError = null;
+        if (bodyStr.trim()) {
+            try {
+                JSON.parse(bodyStr);
+            } catch (e) {
+                jsonParseError = e.message;
+            }
+        }
+
         let digestReason = "";
         if (cleanReqDigest) {
             digestMatch = cleanReqDigest.toLowerCase() === bodyHashHex.toLowerCase();
             digestReason = digestMatch ? "본문 해시가 헤더와 일치함" : `본문 해시 불일치 (기대: ${cleanReqDigest}, 실제: ${bodyHashHex})`;
+            if (!digestMatch && jsonParseError) {
+                digestReason += `\n⚠️ 힌트: 입력하신 요청 본문(JSON)의 문법이 깨져 있습니다. (${jsonParseError})\n따옴표나 쉼표가 빠졌는지 확인해 보세요. JSON 형식이 잘못되면 해시가 완전히 달라집니다.`;
+            }
         } else {
             digestReason = "입력된 X-Body-Digest 헤더가 없습니다.";
         }
@@ -459,6 +551,87 @@ const PopCore = (() => {
         return result;
     }
 
-    return { diagnose, HYPOTHESES };
+
+    // --- Generator Helpers ---
+    async function generateTestSignature(inputs) {
+        const { method, urlStr, bodyStr, nonce, timestampStr, credentialId } = inputs;
+
+        if (bodyStr.trim()) {
+            try {
+                JSON.parse(bodyStr);
+            } catch (e) {
+                throw new Error(`요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\nJSON 문법(쉼표, 따옴표 등)을 먼저 수정해 주셔야 서명을 생성할 수 있습니다.\n<div class="error-detail-box">📌 에러 상세:\n${getJsonErrorSnippet(e, bodyStr)}</div>`);
+            }
+        }
+
+        
+        // 1. Generate Key Pair
+        const keyPair = await _crypto.subtle.generateKey(
+            { name: "ECDSA", namedCurve: "P-256" },
+            true,
+            ["sign", "verify"]
+        );
+        
+        // 2. Export Public Key to PEM
+        const spki = await _crypto.subtle.exportKey("spki", keyPair.publicKey);
+        const spkiBase64 = _btoa(String.fromCharCode(...new Uint8Array(spki)));
+        const pubkeyPem = `-----BEGIN PUBLIC KEY-----\n${spkiBase64.match(/.{1,64}/g).join('\n')}\n-----END PUBLIC KEY-----`;
+        
+        // 3. Generate Digest
+        const digestHex = await hashString(bodyStr || "");
+        const reqDigest = "sha256=" + digestHex;
+        
+        // 4. Build Canonical String
+        
+        if (bodyStr.trim()) {
+            try {
+                JSON.parse(bodyStr);
+            } catch (e) {
+                result.error = { message: `요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\n쉼표(,)나 따옴표(")가 빠졌거나 오타가 있는지 확인해 주세요.\n<div class="error-detail-box">📌 에러 상세:\n${getJsonErrorSnippet(e, bodyStr)}</div>` };
+                return result;
+            }
+        }
+
+        let url;
+        try { url = new URL(urlStr); } catch(e) { throw new Error("URL이 올바르지 않습니다."); }
+        
+        const host = url.host;
+        const path = url.pathname;
+        const query = url.search.substring(1) || "";
+        
+        const canonicalStr = [
+            method.toUpperCase(),
+            host,
+            path,
+            query,
+            digestHex,
+            nonce,
+            timestampStr
+        ].join('\n');
+        
+        const encoder = new TextEncoder();
+        const data = encoder.encode(canonicalStr);
+        
+        // 5. Sign
+        const signatureBytes = await _crypto.subtle.sign(
+            { name: "ECDSA", hash: { name: "SHA-256" } },
+            keyPair.privateKey,
+            data
+        );
+        
+        const signatureBase64Url = _btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+            
+        return {
+            pubkeyPem,
+            reqDigest,
+            signature: signatureBase64Url,
+            canonicalStr
+        };
+    }
+
+    return { diagnose, generateTestSignature, HYPOTHESES };
 })();
 if (typeof module !== 'undefined') module.exports = PopCore;
