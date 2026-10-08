@@ -25,9 +25,10 @@ function getJsonErrorSnippet(e, jsonStr) {
                 for (let i = 0; i < colNum - 1; i++) {
                     pointer += problemLine[i] === '\t' ? '\t' : ' ';
                 }
-                pointer += '▲ (여기 부근)';
-                msg = msg.replace(/at position.*$/, '').trim();
-                return `${msg}\n\n[발견된 위치 : ${lineNum}번째 줄]\n${problemLine}\n${pointer}`;
+                pointer += '▲';
+                
+                msg = msg.replace(/in JSON at position.*$/, '').replace(/at line \d+ column \d+.*$/, '').trim();
+                return `${msg}\n\n[문제 발생 위치: ${lineNum}번째 줄]\n${problemLine}\n${pointer}`;
             }
         }
     } catch (err) {}
@@ -240,7 +241,7 @@ function getJsonErrorSnippet(e, jsonStr) {
     }
 
     async function diagnose(inputs) {
-        const { method, urlStr, bodyStr, nonce, timestampStr, signature, pubkeyPem, evalTime, reqDigest, credentialId } = inputs;
+        const { method, urlStr, bodyStr, nonce, timestampStr, signature, pubkeyPem, evalTime, reqDigest } = inputs;
         
         const result = {
             stages: [],
@@ -252,11 +253,11 @@ function getJsonErrorSnippet(e, jsonStr) {
         };
 
         // Stage 1: Headers presence
-        const headersPresent = !!(method && urlStr && nonce && timestampStr && signature && pubkeyPem && credentialId);
+        const headersPresent = !!(method && urlStr && nonce && timestampStr && signature && pubkeyPem);
         result.stages.push({
             name: "1단계: 필수 데이터 서식 검사 (Offline)",
             status: headersPresent ? "pass" : "fail",
-            reason: headersPresent ? "서명 검증에 필요한 모든 항목이 입력되었습니다. (주의: 본 도구는 오프라인 환경이므로 실제 URL 접속 여부나 JWT 토큰 유효성 검증은 생략하고 즉시 서명을 검증합니다.)" : "Method, URL, Nonce, Timestamp, 서명, Credential-ID 중 누락된 항목이 있습니다."
+            reason: headersPresent ? "서명 검증에 필요한 모든 항목이 입력되었습니다. (주의: 본 도구는 오프라인 환경이므로 실제 URL 접속 여부나 JWT 토큰 유효성 검증은 생략하고 즉시 서명을 검증합니다.)" : "Method, URL, Nonce, Timestamp, 서명 중 누락된 항목이 있습니다."
         });
         if (!headersPresent) { result.firstFailedStage = 1; return result; }
 
@@ -554,7 +555,7 @@ function getJsonErrorSnippet(e, jsonStr) {
 
     // --- Generator Helpers ---
     async function generateTestSignature(inputs) {
-        const { method, urlStr, bodyStr, nonce, timestampStr, credentialId } = inputs;
+        const { method, urlStr, bodyStr, nonce, timestampStr } = inputs;
 
         if (bodyStr.trim()) {
             try {

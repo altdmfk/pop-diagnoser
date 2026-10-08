@@ -87,7 +87,6 @@ document.addEventListener('DOMContentLoaded', () => {
             timestampStr: document.getElementById('req-timestamp').value,
             signature: document.getElementById('req-signature').value,
             reqDigest: document.getElementById('req-digest').value,
-            credentialId: document.getElementById('req-credential-id').value,
             pubkeyPem: document.getElementById('req-pubkey').value,
             evalTime: document.getElementById('eval-timestamp').value
         };
@@ -109,7 +108,6 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('req-timestamp').value = data.timestampStr || '';
             document.getElementById('req-signature').value = data.signature || '';
             document.getElementById('req-digest').value = data.reqDigest || '';
-            document.getElementById('req-credential-id').value = data.credentialId || '';
             document.getElementById('req-pubkey').value = data.pubkeyPem || '';
             document.getElementById('eval-timestamp').value = data.evalTime || '';
             showToast(`📂 슬롯 ${i}의 데이터를 성공적으로 불러왔습니다.`);
@@ -161,7 +159,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setVal('req-timestamp', fixture.timestamp);
         setVal('req-signature', fixture.signature);
         setVal('req-digest', fixture.digest || '');
-        setVal('req-credential-id', fixture.credentialId || 'test-cred-id');
         setVal('req-pubkey', window.FIXTURES.public_key || '-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEgHsBt/wr3i0Y+5QEk7rVWqy/WiAp\n2BE0Fh98ukGLUupf0yKXbYwjrKKNGb+RWKp8kXdEVAYG2ExSBg3TLqgM6g==\n-----END PUBLIC KEY-----\n');
         
         const evalTimeInput = document.getElementById('eval-timestamp');
@@ -182,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-demo-expired').addEventListener('click', () => loadDemo('timestamp-fail', true));
 
     document.getElementById('btn-clear-all').addEventListener('click', () => {
-        const fields = ['req-method', 'req-url', 'req-body', 'req-nonce', 'req-timestamp', 'req-signature', 'req-digest', 'req-credential-id', 'req-pubkey', 'eval-timestamp'];
+        const fields = ['req-method', 'req-url', 'req-body', 'req-nonce', 'req-timestamp', 'req-signature', 'req-digest', 'req-pubkey', 'eval-timestamp'];
         fields.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
@@ -205,9 +202,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 urlStr: document.getElementById('req-url').value,
                 bodyStr: document.getElementById('req-body').value.replace(/\r\n/g, '\n'),
                 nonce: document.getElementById('req-nonce').value || 'n-test',
-                timestampStr: document.getElementById('req-timestamp').value || Math.floor(Date.now() / 1000).toString(),
-                credentialId: document.getElementById('req-credential-id').value
-            };
+                timestampStr: document.getElementById('req-timestamp').value || Math.floor(Date.now() / 1000).toString()
+        };
             
             if (!inputs.urlStr) {
                 const panel = document.getElementById('result-panel');
@@ -263,7 +259,6 @@ document.addEventListener('DOMContentLoaded', () => {
             signature: cleanNoSpace('Signature', document.getElementById('req-signature').value),
             pubkeyPem: document.getElementById('req-pubkey').value.trim(),
             reqDigest: cleanNoSpace('Body-Digest', document.getElementById('req-digest').value),
-            credentialId: cleanNoSpace('Credential-ID', document.getElementById('req-credential-id').value),
             evalTime: parseInt(evalTimeInput.value, 10)
         };
 
