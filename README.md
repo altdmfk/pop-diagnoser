@@ -98,11 +98,12 @@ flowchart TD
 
     subgraph Test_Suite["Test & Verification"]
         Fixtures["test/fixtures/fixtures.js"]
-        TestJS["test/test.js (45 Tests)"]
+        TestJS["test/test.js (47 Tests)"]
         Fixtures --> TestJS
         Diagnose --> TestJS
         Render --> TestJS
         Slots --> TestJS
+        Tabs --> TestJS
     end
 ```
 
@@ -138,7 +139,7 @@ flowchart LR
 | 3 | `method-lowercase` | `[흔한 실수]` | 4단계 | HTTP 메서드를 소문자(`post`, `get` 등)로 서명함 | [`fixtures.js`](test/fixtures/fixtures.js) (`method-lowercase`, `combo-2`) |
 | 4 | `path-trailing-slash-add` | `[흔한 실수]` | 4단계 | URL Path 끝에 슬래시(`/`)를 추가하여 서명함 | [`fixtures.js`](test/fixtures/fixtures.js) (`path-trailing-slash-add`) |
 | 5 | `path-trailing-slash-remove` | `[흔한 실수]` | 4단계 | URL Path 끝의 슬래시(`/`)를 제거하고 서명함 | [`test/test.js`](test/test.js) (`hyp-path-trailing-slash-remove`) |
-| 6 | `host-rewritten` | `[흔한 실수]` | 4단계 | 프록시/클라이언트가 `Host`의 포트(`:443`)를 추가하거나 제거함 | [`fixtures.js`](test/fixtures/fixtures.js) (`host-rewritten`, `both-fail`) |
+| 6 | `host-rewritten` | `[흔한 실수]` | 4단계 | `Host`의 기본 포트(`:443`)를 누락하거나 추가하여 서명함 | [`fixtures.js`](test/fixtures/fixtures.js) (`host-rewritten`, `both-fail`) |
 | 7 | `sig-der` | `[인코딩]` | 4단계 | 서명을 64B Raw(P1363) 대신 ASN.1 DER 형식으로 인코딩함 | [`fixtures.js`](test/fixtures/fixtures.js) (`sig-der`), [`test/test.js`](test/test.js) (`hyp-sig-der-short-under-70b`) |
 | 8 | `sig-base64url` | `[인코딩]` | 4단계 | 서명을 Base64url 대신 표준 Base64(`+`, `/`, `=`)로 인코딩함 | [`test/test.js`](test/test.js) (`hyp-sig-base64url`) |
 | 9 | `newline-crlf` | `[논문 규칙]` | 4·5단계 겸용 | Canonical 구분자(4단계) 또는 본문 줄바꿈(5단계)을 `CRLF(\r\n)`로 사용함 | [`test/test.js`](test/test.js) (`hyp-newline-crlf-stage4`), [`fixtures.js`](test/fixtures/fixtures.js) (`newline-crlf`) |
@@ -155,7 +156,7 @@ flowchart LR
 ### 단위·회귀 테스트 실행
 Node.js(v20 이상 권장) 환경에서 외부 패키지 설치 없이 즉시 실행됩니다.
 ```bash
-# 루트 진입점 또는 테스트 파일 직접 실행 (총 45개 테스트)
+# 루트 진입점 또는 테스트 파일 직접 실행 (총 47개 테스트)
 node test.js
 node test/test.js
 
@@ -184,6 +185,7 @@ node tools/golden_pass.js            # 골든 패스 픽스처 검증
 ## 8. 알려진 한계 (Known Limitations)
 
 - **카탈로그 밖 변형 및 복합 오류 상한**: 브라우저 응답성을 보장하기 위해 가설 탐색은 최대 3개 조합(`maxComboDepth: 3`), 최대 2,000개 노드(`maxSearchNodes: 2000`)까지만 수행합니다. 카탈로그에 없는 독자적 변형이나 4개 이상의 복합 실수는 `"원인 파악 실패 (일치하는 실수 패턴 없음)"`으로 표시됩니다.
+- **`host-rewritten` 가설의 범위**: `host-rewritten` 가설은 HTTPS 기본 포트(`:443`)의 누락·추가만 역추적합니다. `:80` 포트, 커스텀 포트(예: `:8443`), 또는 브라우저 `new URL()` 파서가 자동 소문자 정규화하는 `Host` 대소문자 변형은 탐지 범위에 포함되지 않습니다.
 - **중간 계층 은밀한 변형**: 리버스 프록시, CDN, WAF 등이 전송 도중 URL이나 본문을 재작성한 경우 클라이언트가 서명한 원본 값을 역추적하려면 변형 전후 요청을 비교해야 합니다.
 - **서버 상태 의존 항목 제외**: 게이트웨이 DB의 Nonce 재사용(Replay) 여부 조회 및 `Authorization` 헤더의 JWT 클레임(`cnf.kid`) 바인딩 검증은 서버 상태가 필요하므로 오프라인 진단 범위에서 제외됩니다.
 

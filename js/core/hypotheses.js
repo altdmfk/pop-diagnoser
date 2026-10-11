@@ -59,7 +59,7 @@
         },
         {
             id: 'host-rewritten',
-            label: 'Host 포트 누락/추가 또는 대소문자 변형',
+            label: 'Host 기본 포트(:443) 누락 또는 추가',
             tag: 'common-mistake',
             stage: 4,
             apply: async (req) => {

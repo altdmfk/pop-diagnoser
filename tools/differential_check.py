@@ -83,7 +83,6 @@ def run_test(case_name, desc, method, path, query, body, mod_header=None, mod_bo
         "signature": headers.get("X-FIDO2-Signature", ""),
         "pubkeyPem": sim.get_public_key_pem(),
         "reqDigest": headers.get("X-Body-Digest", ""),
-        "credentialId": headers.get("X-FIDO2-Credential-ID", ""),
         "evalTime": int(time.time())
     }
     
