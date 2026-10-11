@@ -224,7 +224,7 @@ textarea {
 
 .top-action-bar {
   display: flex;
-  justify-content: flex-start;
+  justify-content: space-between;
   align-items: center;
   background: transparent;
   padding: 0;
@@ -232,6 +232,38 @@ textarea {
   border: none;
   margin-bottom: 12px;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.action-left-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.demo-selector-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.demo-select-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.demo-select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--surface-color);
+  color: var(--text-main);
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 
 .diff-view {
@@ -274,12 +306,12 @@ textarea {
   color: var(--text-muted);
   margin-bottom: 8px;
   margin-top: -2px;
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .tabs {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 16px;
   border-bottom: 2px solid var(--border-color);
   padding-bottom: 8px;
@@ -305,20 +337,47 @@ textarea {
 }
 .tab-pane {
   display: none;
-  min-height: 520px;
+  min-height: 460px;
 }
 .tab-pane.active {
   display: block;
 }
 
+.tools-section-box {
+  padding-bottom: 14px;
+}
+
+.tools-memory-box {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.tools-section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 6px;
+}
+
 /* Refactored inline styles to comply with CSP */
 #btn-clear-all {
+  height: 36px;
+  padding: 0 12px;
   color: #ef4444;
   border-color: #fca5a5;
-  font-weight: bold;
-  margin-left: auto;
+  font-weight: 600;
+}
+#btn-diagnose.btn-diagnose-main {
+  height: 36px;
+  min-width: 160px;
+  padding: 0 32px;
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 #btn-generate-test {
+  height: 36px;
+  padding: 0 14px;
   background-color: #10b981;
   border-color: #059669;
   font-size: 0.85rem;
@@ -458,6 +517,7 @@ textarea {
 button:focus-visible,
 .tab-btn:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible,
 a:focus-visible {
@@ -466,11 +526,6 @@ a:focus-visible {
 }
 
 /* Signature & Public Key Inspector */
-#btn-inspect-now {
-  height: 30px;
-  font-size: 0.85rem;
-}
-
 .inspector-accordion {
   margin-top: 16px;
   border: 1px solid var(--border-color);
@@ -597,6 +652,12 @@ a:focus-visible {
   line-height: 1.4;
 }
 
+.inspector-placeholder {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  padding: 6px 0;
+}
+
 /* cURL / Raw HTTP Importer */
 .import-accordion {
   margin-bottom: 12px;
@@ -678,6 +739,21 @@ a:focus-visible {
   padding: 0 10px;
   font-size: 0.78rem;
   color: #475569;
+}
+
+.import-apply-notice {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  color: #1e40af;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.import-apply-notice.hidden {
+  display: none;
 }
 
 .import-status-banner {

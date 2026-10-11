@@ -1,98 +1,60 @@
 <!DOCTYPE html>
-
 <html lang="ko">
-
 <head>
   <meta charset="utf-8">
-
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src 'self' file: data:; connect-src 'none'; base-uri 'none'; form-action 'none';">
-
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  
-
   <title>PoP 게이트웨이 401/403/400 진단기</title>
   <link rel="stylesheet" href="css/style.css">
-
 </head>
-
 <body>
-
   <div class="container">
-
-        <header>
-      <h1>FIDO2 PoP 진단기</h1>
-      <p>이 도구는 <a href="https://altdmfk.github.io/fido2-pop-gateway/" target="_blank" rel="noopener noreferrer">FIDO2 PoP 게이트웨이 프로젝트</a>의 검증 로직(1~5단계)을 시뮬레이션하는 로컬 샌드박스입니다.</p>
+    <header>
+      <h1>FIDO2 PoP 요청 진단기</h1>
+      <p>
+        일반 인증 토큰은 탈취되면 다른 기기에서도 그대로 재사용할 수 있습니다. 이를 막기 위해
+        <a href="https://altdmfk.github.io/fido2-pop-gateway/" target="_blank" rel="noopener noreferrer">FIDO2 PoP(소유 증명) 게이트웨이</a>는
+        클라이언트가 요청을 보낼 때마다 <strong>HTTP 요청 내용(메서드, 주소, 시각, 난수, 본문 해시)을 개인키로 직접 서명</strong>하게 하고, 서버가 등록된 공개키로 그 서명을 확인합니다.
+      </p>
       <div class="alert info">
-        API가 '401 Unauthorized'를 반환할 때, 서명된 요청을 붙여넣어 어느 단계에서 실패했는지 확인할 수 있습니다.<br>
-        (Authorization 헤더의 JWT 디코딩 및 바인딩 검증 등 서버 상태가 필요한 로직은 제외됩니다.)
+        서명할 때 사용한 문자열의 줄바꿈, 대소문자, 쿼리 순서, 인코딩 방식이 게이트웨이 기준과 조금만 달라도 서버는 구체적인 이유 없이 <code>401</code>·<code>403</code>·<code>400</code> 오류만 반환합니다.<br>
+        이 도구는 브라우저 안에서 게이트웨이의 1~5단계 검증 과정을 그대로 실행해 보고, 실패했을 때 <strong>어느 단계에서 어떤 규칙 차이 때문에 거절되었는지</strong> 찾아줍니다. (서버 DB 조회가 필요한 Nonce 중복 검사와 JWT 바인딩 확인은 제외됩니다.)
       </div>
     </header>
 
-
-
-    <div class="demo-buttons">
-
-      <button id="btn-demo-valid" class="btn-demo">✅ 정상적인 요청 예시</button>
-
-      <button id="btn-demo-unsorted" class="btn-demo" title="게이트웨이는 원본 순서(c=3&amp;a=1&amp;b=2)를 기대하는데 클라이언트가 알파벳순(a=1&amp;b=2&amp;c=3)으로 정렬해 서명한 상황입니다.">❌ 실수로 쿼리를 정렬해 서명한 예시</button>
-
-      <button id="btn-demo-method" class="btn-demo" title="네트워크로는 POST로 보냈지만, 서명할 때는 post로 해시한 상황입니다.">❌ 서명 시 소문자(post)로 잘못 암호화한 예시</button>
-
-      <button id="btn-demo-expired" class="btn-demo">❌ 타임스탬프가 만료된 예시</button>
-      <button id="btn-clear-all" class="btn-demo" >🗑️ 전체 값 지우기</button>
-
-    </div>
-
-    <div class="top-action-bar" >
-      <button id="btn-generate-test" class="btn-primary">🔧 내 입력값으로 서명 생성</button>
-      <button id="btn-diagnose" class="btn-primary">진단 시작</button>
-      <button type="button" id="btn-inspect-now" class="btn-small">🔍 서명·공개키 분석</button>
-    </div>
-
-    <details class="memory-accordion">
-      <summary>📁 임시저장소 (슬롯 1~5)</summary>
-      <div class="memory-content" id="memory-slots-container">
-        <!-- Rendered via JS -->
+    <div class="top-action-bar">
+      <div class="action-left-group">
+        <button id="btn-diagnose" class="btn-primary btn-diagnose-main">진단 시작</button>
+        <button id="btn-generate-test" class="btn-primary">서명값 생성</button>
       </div>
-    </details>
-
-    <details id="curl-import-accordion" class="memory-accordion import-accordion">
-      <summary>📋 cURL / Raw HTTP 붙여넣기 (요청 자동 채우기)</summary>
-      <div class="import-content">
-        <div class="import-header-row">
-          <label for="curl-import-input" class="import-label">cURL 명령어(Copy as cURL - bash) 또는 Raw HTTP 원문</label>
-          <div class="import-sample-buttons">
-            <button type="button" id="btn-sample-curl-valid" class="btn-small btn-import-sample">샘플: 정상 cURL</button>
-            <button type="button" id="btn-sample-curl-der" class="btn-small btn-import-sample">샘플: 실패 cURL (DER 서명)</button>
-            <button type="button" id="btn-sample-raw-http" class="btn-small btn-import-sample">샘플: Raw HTTP</button>
-          </div>
-        </div>
-        <textarea id="curl-import-input" rows="4" maxlength="550000" placeholder="curl 'https://api.example.com/v1/tx?a=1' -X POST -H 'X-FIDO2-Nonce: ...' --data-raw '{...}' 또는 Raw HTTP 요청을 붙여넣으세요."></textarea>
-        <div class="import-actions">
-          <button type="button" id="btn-curl-apply" class="btn-primary">📥 입력칸에 채우기</button>
-          <div id="curl-confirm-bar" class="import-confirm-bar hidden">
-            <span class="import-confirm-msg">⚠️ 기존 입력값이 있습니다. 덮어쓰시겠습니까?</span>
-            <button type="button" id="btn-curl-confirm-yes" class="btn-small btn-confirm-yes">덮어쓰기</button>
-            <button type="button" id="btn-curl-confirm-no" class="btn-small btn-confirm-no">취소</button>
-          </div>
-        </div>
+      <div class="demo-selector-group">
+        <label for="demo-select" class="demo-select-label">예시 데이터</label>
+        <select id="demo-select" class="demo-select">
+          <option value="valid">✅ 정상 요청 (1~5단계 통과)</option>
+          <option value="query-sorted">❌ 4단계 실패: 쿼리 파라미터를 알파벳순으로 정렬해 서명함</option>
+          <option value="method-lowercase">❌ 4단계 실패: HTTP 메서드를 소문자(post)로 서명함</option>
+          <option value="sig-der">❌ 4단계 실패: 서명을 64바이트 Raw 대신 DER 형식으로 인코딩함</option>
+          <option value="digest-base64url">❌ 5단계 실패: 본문 해시를 16진수(Hex) 대신 Base64url로 인코딩함</option>
+          <option value="timestamp-fail">❌ 2단계 실패: 타임스탬프 허용 오차(60초) 초과</option>
+          <option value="combo-2">❌ 4단계 실패: 복합 실수 (소문자 메서드 + 쿼리 정렬)</option>
+        </select>
+        <button id="btn-clear-all" class="btn-demo">🗑️ 전체 지우기</button>
       </div>
-    </details>
+    </div>
 
     <div class="main-content">
-
       <div class="input-section">
         <div class="tabs" role="tablist" aria-label="진단 입력 항목 탭">
           <button id="tab-btn-http" class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-http" tabindex="0" data-target="tab-http">HTTP 요청</button>
           <button id="tab-btn-headers" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-headers" tabindex="-1" data-target="tab-headers">서명 헤더</button>
           <button id="tab-btn-config" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-config" tabindex="-1" data-target="tab-config">검증 설정</button>
+          <button id="tab-btn-tools" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-tools" tabindex="-1" data-target="tab-tools">cURL · 임시저장소</button>
         </div>
 
         <div id="tab-http" class="tab-pane active" role="tabpanel" aria-labelledby="tab-btn-http">
           <div class="form-group">
             <label for="req-method">HTTP 메서드 및 URL</label>
-            <div class="field-desc">서버로 전송하는 HTTP 메서드와 전체 URL입니다. 쿼리 파라미터(?a=1)까지 정확히 일치해야 합니다.</div>
+            <div class="field-desc">실제로 요청을 보낸 메서드(POST, GET 등)와 전체 주소입니다. 서명할 때는 대문자 메서드를 쓰고, 주소 뒤의 쿼리(?c=3&amp;a=1&amp;b=2)도 정렬하지 않고 보낸 순서 그대로 넣어야 합니다.</div>
             <div class="url-input-group">
               <input type="text" id="req-method" list="method-list" value="POST" maxlength="20" aria-label="HTTP 메서드">
               <datalist id="method-list">
@@ -105,34 +67,33 @@
               <input type="text" id="req-url" maxlength="2048" aria-label="요청 URL">
             </div>
           </div>
-          
+
           <div class="form-group">
             <label for="req-body">요청 본문 (JSON Body)</label>
-            <div class="field-desc">서버로 전송할 페이로드(JSON 등) 데이터입니다. 본문 내용이 1바이트라도 변경되면 검증에 실패합니다.</div>
-            <textarea id="req-body" maxlength="50000" rows="6"></textarea>
+            <div class="field-desc">서버로 보낸 본문 원문입니다. 공백이나 줄바꿈이 한 글자라도 달라지면 본문 해시값(Body-Digest)이 바뀌어 5단계에서 실패합니다.</div>
+            <textarea id="req-body" maxlength="50000" rows="7"></textarea>
           </div>
         </div>
 
         <div id="tab-headers" class="tab-pane" role="tabpanel" aria-labelledby="tab-btn-headers">
-          
           <div class="form-group">
-            <label for="req-nonce">Nonce</label>
-            <div class="field-desc">재전송 공격(Replay Attack)을 방지하기 위해 클라이언트가 매 요청마다 새로 생성하는 1회용 난수(Random String)입니다.</div>
+            <label for="req-nonce">Nonce (X-FIDO2-Nonce)</label>
+            <div class="field-desc">같은 요청을 가로채서 다시 보내는 공격(재전송 공격)을 막기 위해 요청마다 새로 만드는 1회용 문자열입니다.</div>
             <input type="text" id="req-nonce" maxlength="128">
           </div>
           <div class="form-group">
-            <label for="req-timestamp">Timestamp</label>
-            <div class="field-desc">클라이언트가 서명을 생성한 시각(Unix Timestamp)입니다. 기준 시각(서버 시간) 대비 오차가 허용 범위를 벗어나면 만료 처리됩니다.</div>
+            <label for="req-timestamp">Timestamp (X-FIDO2-Timestamp)</label>
+            <div class="field-desc">서명을 만든 시각(초 단위 Unix 시간)입니다. 검증 설정 탭의 '평가 기준 시각'과 비교해 60초 넘게 차이 나면 2단계에서 만료 처리됩니다.</div>
             <input type="text" id="req-timestamp" maxlength="20">
           </div>
           <div class="form-group">
-            <label for="req-digest">Body-Digest</label>
-            <div class="field-desc">요청 본문(Body) 데이터가 전송 도중 변조되지 않았음을 수학적으로 증명하는 해시(Hash) 요약본입니다.</div>
+            <label for="req-digest">Body-Digest (X-Body-Digest)</label>
+            <div class="field-desc">요청 본문(Body)을 SHA-256으로 해시한 값입니다. 'sha256=' 뒤에 64자리 소문자 16진수(Hex)를 붙이며, 서명할 문자열의 마지막 줄에도 들어갑니다.</div>
             <input type="text" id="req-digest" maxlength="256">
           </div>
           <div class="form-group">
-            <label for="req-signature">Signature</label>
-            <div class="field-desc">본인이 보냈다는 것을 증명하는 전자서명입니다. ECDSA P-256 서명 기준, Base64url 디코딩 시 정확히 64바이트(r값 32바이트 + s값 32바이트)여야 합니다.</div>
+            <label for="req-signature">Signature (X-FIDO2-Signature)</label>
+            <div class="field-desc">요청 항목들을 줄바꿈(\n)으로 이어 붙인 문자열에 ECDSA P-256 개인키로 서명한 값입니다. r(32바이트)과 s(32바이트)를 합친 64바이트 Raw 형식을 Base64url로 인코딩해야 합니다.</div>
             <input type="text" id="req-signature" maxlength="512">
           </div>
         </div>
@@ -140,47 +101,74 @@
         <div id="tab-config" class="tab-pane" role="tabpanel" aria-labelledby="tab-btn-config">
           <div class="form-group">
             <label for="req-pubkey">공개키 (PEM)</label>
-            <div class="field-desc">전자서명의 유효성을 검증하기 위한 암호학적 공개키입니다. (PEM 형식 및 순수 Base64 문자열 모두 지원)</div>
+            <div class="field-desc">클라이언트의 개인키와 짝을 이루는 ECDSA P-256 공개키(SPKI PEM 형식)입니다. 게이트웨이와 이 진단기는 개인키 없이 공개키만으로 서명이 맞는지 확인합니다.</div>
             <textarea id="req-pubkey" maxlength="2048" rows="6"></textarea>
           </div>
-          
-          <div class="form-group eval-time-group" >
-            <label for="eval-timestamp">평가 기준 시각 (Unix Timestamp):</label>
-            <input type="number" id="eval-timestamp" >
-            <button id="btn-now" class="btn-small">현재 시각</button>
+
+          <div class="form-group">
+            <label for="eval-timestamp">평가 기준 시각 (Unix Timestamp)</label>
+            <div class="field-desc">게이트웨이가 요청을 검사하는 기준 시각(초 단위)입니다. 이전에 캡처한 요청을 진단할 때는 요청의 Timestamp와 비슷한 값으로 맞춰 두면 만료 오류 없이 서명을 확인할 수 있습니다.</div>
+            <div class="eval-time-group">
+              <input type="number" id="eval-timestamp">
+              <button id="btn-now" class="btn-small">현재 시각</button>
+            </div>
           </div>
         </div>
-</div>
 
+        <div id="tab-tools" class="tab-pane" role="tabpanel" aria-labelledby="tab-btn-tools">
+          <div class="tools-section-box">
+            <div class="import-header-row">
+              <label for="curl-import-input" class="import-label">📋 cURL 명령어 또는 Raw HTTP 요청 붙여넣기</label>
+              <div class="import-sample-buttons">
+                <button type="button" id="btn-sample-curl-valid" class="btn-small btn-import-sample">샘플: 정상 cURL</button>
+                <button type="button" id="btn-sample-curl-der" class="btn-small btn-import-sample">샘플: 실패 cURL (DER 서명)</button>
+                <button type="button" id="btn-sample-raw-http" class="btn-small btn-import-sample">샘플: Raw HTTP</button>
+              </div>
+            </div>
+            <div class="field-desc">브라우저 개발자 도구(Network 탭 → 요청 우클릭 → Copy as cURL)에서 복사한 명령어나 HTTP 요청 원문을 붙여넣으면 메서드, URL, 본문, 서명 헤더 4종을 한 번에 채웁니다.</div>
+            <textarea id="curl-import-input" rows="5" maxlength="550000" placeholder="curl 'https://api.example.com/v1/tx?a=1' -X POST -H 'X-FIDO2-Nonce: ...' --data-raw '{...}' 또는 Raw HTTP 요청을 붙여넣으세요."></textarea>
+            <div class="import-actions">
+              <button type="button" id="btn-curl-apply" class="btn-primary">📥 입력칸에 채우기</button>
+              <div id="curl-confirm-bar" class="import-confirm-bar hidden">
+                <span class="import-confirm-msg">⚠️ 기존 입력값이 있습니다. 덮어쓰시겠습니까?</span>
+                <button type="button" id="btn-curl-confirm-yes" class="btn-small btn-confirm-yes">덮어쓰기</button>
+                <button type="button" id="btn-curl-confirm-no" class="btn-small btn-confirm-no">취소</button>
+              </div>
+            </div>
+            <div id="curl-apply-notice" class="import-apply-notice hidden"></div>
+          </div>
 
+          <div class="tools-section-box tools-memory-box">
+            <div class="tools-section-title">📁 임시저장소 (슬롯 1~5)</div>
+            <div class="field-desc">현재 입력된 요청, 서명 헤더, 공개키, 평가 기준 시각을 브라우저 저장소(localStorage)에 5개까지 저장해 두고 비교할 수 있습니다.</div>
+            <div class="memory-content" id="memory-slots-container">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="result-section">
-
         <h3>진단 결과</h3>
 
         <div id="import-status-banner" class="import-status-banner hidden"></div>
 
         <div id="result-panel" class="result-panel empty" role="status" aria-live="polite">
-
-          <p class="placeholder-text">왼쪽에서 데이터를 입력하고 '진단 시작'을 눌러주세요.</p>
-
+          <p class="placeholder-text">왼쪽에서 데이터를 확인하고 '진단 시작'을 눌러주세요.</p>
         </div>
 
-        
-
         <div class="overhead-info hidden" id="overhead-info">
-
-          <h4>💡 페이로드 절감 효과 (논문 수치 반영)</h4>
-
-          <p>입력된 서명 길이를 보면 <strong>ECDSA P-256</strong> 알고리즘이 사용되었습니다.<br>
-
-      이는 논문의 실측 결과에 따라 RSA-2048(약 499 Bytes) 대비 서명 헤더 크기를 <strong>약 51.3% (243 Bytes로) 절감</strong>한 규격입니다.</p>
-
+          <h4>💡 왜 ECDSA P-256 서명을 사용하나요?</h4>
+          <p>
+            매 API 요청마다 헤더에 서명을 담아 보내야 하므로 서명 크기가 작을수록 네트워크 부담이 줄어듭니다.<br>
+            64바이트 길이의 <strong>ECDSA P-256</strong> 서명을 사용하면 RSA-2048을 쓸 때보다 서명 헤더 전체 크기를 <strong>약 절반(499 Bytes → 243 Bytes, 51.3% 감소)</strong>으로 줄일 수 있습니다.
+          </p>
         </div>
 
         <details id="inspector-panel" class="inspector-accordion">
-          <summary>🔍 서명 · 공개키 구조 인스펙터 (Signature &amp; Public Key Inspector)</summary>
+          <summary>🔍 서명 · 공개키 구조 인스펙터</summary>
           <div class="inspector-content">
+            <div class="field-desc">'진단 시작'을 누르면 입력된 서명과 공개키의 바이트 구조(인코딩 방식, r·s 값, 타원곡선 좌표 등)가 아래에 함께 분석됩니다.</div>
             <div class="inspector-card">
               <h5>서명 (Signature) 구조 분석</h5>
               <div id="inspector-sig-box"></div>
@@ -191,14 +179,9 @@
             </div>
           </div>
         </details>
-
       </div>
-
     </div>
-
   </div>
-
-
 
   <!-- Script Load Order (IIFE/UMD, no ES modules for file:// compatibility):
        1. Fixtures -> 2. Core Profile & Modules -> 3. JSON Error Formatter -> 4. Core Diagnose Engine -> 5. UI Modules -> 6. App Bootstrap -->
@@ -218,8 +201,5 @@
   <script src="js/ui/inspector.js"></script>
   <script src="js/ui/importer.js"></script>
   <script src="js/app.js"></script>
-
 </body>
-
 </html>
-

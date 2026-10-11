@@ -31,6 +31,7 @@
             initMemorySlots,
             initTabs,
             initInspector,
+            resetInspector,
             refreshInspector,
             initImporter
         } = root.PopUI;
@@ -76,7 +77,7 @@
             setVal('req-pubkey', root.FIXTURES.public_key || DEFAULT_FALLBACK_PUBKEY);
 
             if (evalTimeInput) evalTimeInput.value = root.FIXTURES.eval_time;
-            if (typeof refreshInspector === 'function') refreshInspector();
+            if (typeof resetInspector === 'function') resetInspector();
 
             if (showFeedback) {
                 showToast('✅ 선택하신 예시 데이터가 모든 탭에 자동 입력되었습니다.');
@@ -89,20 +90,30 @@
             }
         };
 
-        document.getElementById('btn-demo-valid').addEventListener('click', () => loadDemo('valid', true));
-        document.getElementById('btn-demo-unsorted').addEventListener('click', () => loadDemo('query-sorted', true));
-        document.getElementById('btn-demo-method').addEventListener('click', () => loadDemo('method-lowercase', true));
-        document.getElementById('btn-demo-expired').addEventListener('click', () => loadDemo('timestamp-fail', true));
+        const demoSelect = document.getElementById('demo-select');
+        if (demoSelect) {
+            demoSelect.addEventListener('change', () => {
+                if (demoSelect.value) {
+                    loadDemo(demoSelect.value, true);
+                }
+            });
+        }
 
         document.getElementById('btn-clear-all').addEventListener('click', () => {
             FORM_FIELD_IDS.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = '';
             });
+            const curlInput = document.getElementById('curl-import-input');
+            if (curlInput) curlInput.value = '';
+            const statusBanner = document.getElementById('import-status-banner');
+            if (statusBanner) statusBanner.classList.add('hidden');
+            const applyNotice = document.getElementById('curl-apply-notice');
+            if (applyNotice) applyNotice.classList.add('hidden');
             const panel = document.getElementById('result-panel');
-            setPlaceholder(panel, ["왼쪽에서 데이터를 입력하고 '진단 시작'을 눌러주세요."]);
+            setPlaceholder(panel, ["왼쪽에서 데이터를 확인하고 '진단 시작'을 눌러주세요."]);
             setOverheadVisible(false);
-            if (typeof refreshInspector === 'function') refreshInspector();
+            if (typeof resetInspector === 'function') resetInspector();
         });
 
         loadDemo('valid');
@@ -134,7 +145,7 @@
                 document.getElementById('req-nonce').value = inputs.nonce;
                 document.getElementById('req-method').value = inputs.method;
 
-                if (typeof refreshInspector === 'function') refreshInspector();
+                if (typeof resetInspector === 'function') resetInspector();
                 showToast('✨ 새로운 서명이 생성되어 적용되었습니다!');
                 renderGenerateSuccess(panel);
                 setOverheadVisible(false);
@@ -177,6 +188,9 @@
                     });
                 }
                 renderResult(result);
+                if (typeof refreshInspector === 'function') {
+                    await refreshInspector();
+                }
 
                 if (!result.error && result.firstFailedStage === null) {
                     setOverheadVisible(true);

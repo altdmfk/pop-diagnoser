@@ -335,15 +335,10 @@
         panel.textContent = '';
         const okDiv = document.createElement('div');
         okDiv.className = 'alert success';
-        okDiv.appendChild(document.createTextNode('✨ '));
         const sTitle = document.createElement('strong');
-        sTitle.textContent = '테스트용 서명 자동 생성 완료:';
+        sTitle.textContent = '서명값 생성 완료: ';
         okDiv.appendChild(sTitle);
-        okDiv.appendChild(document.createTextNode(' 입력하신 요청 정보를 바탕으로 새로운 '));
-        const sItems = document.createElement('strong');
-        sItems.textContent = '공개키, 본문 해시(Digest), 전자서명';
-        okDiv.appendChild(sItems);
-        okDiv.appendChild(document.createTextNode('이 정상적으로 생성되어 모든 탭의 입력칸에 자동 적용되었습니다.'));
+        okDiv.appendChild(document.createTextNode('공개키, Body-Digest, Signature가 생성되어 입력칸에 적용되었습니다.'));
         panel.appendChild(okDiv);
         panel.classList.remove('empty');
     }

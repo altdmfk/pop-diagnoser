@@ -74,7 +74,7 @@
 
             const pubkeyNotice = document.createElement('div');
             pubkeyNotice.className = 'import-report-line import-line-info';
-            pubkeyNotice.textContent = "• 안내: 공개키(Public Key)와 평가 기준 시각은 cURL/HTTP 요청에 포함되지 않으므로 변경하지 않았습니다. (공개키는 직접 입력 필요)";
+            pubkeyNotice.textContent = PUBKEY_UNCHANGED_NOTICE;
             box.appendChild(pubkeyNotice);
         }
 
@@ -103,6 +103,8 @@
         container.appendChild(box);
     }
 
+    const PUBKEY_UNCHANGED_NOTICE = '• 안내: 공개키(Public Key)와 평가 기준 시각은 cURL/HTTP 요청에 포함되지 않으므로 변경하지 않았습니다. (공개키는 직접 입력 필요)';
+
     function hasExistingRequestInput() {
         if (typeof document === 'undefined') return false;
         const checkIds = ['req-url', 'req-body', 'req-nonce', 'req-timestamp', 'req-signature', 'req-digest'];
@@ -121,11 +123,27 @@
             }
         }
         // Intentionally leave #req-pubkey and #eval-timestamp untouched
-        if (deps && typeof deps.refreshInspector === 'function') {
-            deps.refreshInspector();
+        if (deps && typeof deps.resetInspector === 'function') {
+            deps.resetInspector();
+        }
+        const applyNoticeEl = document.getElementById('curl-apply-notice');
+        if (applyNoticeEl) {
+            applyNoticeEl.textContent = PUBKEY_UNCHANGED_NOTICE;
+            applyNoticeEl.classList.remove('hidden');
+        }
+        const panel = document.getElementById('result-panel');
+        if (panel && deps && typeof deps.setPlaceholder === 'function') {
+            deps.setPlaceholder(panel, [
+                '📥 cURL / Raw HTTP 데이터가 입력칸에 반영되었습니다.',
+                PUBKEY_UNCHANGED_NOTICE,
+                "확인을 위해 '진단 시작' 버튼을 눌러주세요."
+            ]);
+        }
+        if (deps && typeof deps.setOverheadVisible === 'function') {
+            deps.setOverheadVisible(false);
         }
         if (deps && typeof deps.showToast === 'function') {
-            deps.showToast('📥 cURL / Raw HTTP 데이터가 입력칸에 반영되었습니다.');
+            deps.showToast(`📥 입력값 적용 완료 (${PUBKEY_UNCHANGED_NOTICE})`);
         }
     }
 
@@ -205,13 +223,20 @@
 
         let pendingParseResult = null;
 
+        const applyNoticeEl = document.getElementById('curl-apply-notice');
+
         const hideConfirmBar = () => {
             pendingParseResult = null;
             if (confirmBar) confirmBar.classList.add('hidden');
         };
 
+        const hideApplyNotice = () => {
+            if (applyNoticeEl) applyNoticeEl.classList.add('hidden');
+        };
+
         const fillSample = (type) => {
             hideConfirmBar();
+            hideApplyNotice();
             inputEl.value = buildImportSample(type);
             if (typeof inputEl.focus === 'function') {
                 inputEl.focus();
@@ -234,6 +259,7 @@
             const parseFn = (deps && deps.parseCurl) || (typeof window !== 'undefined' && window.PopCore && window.PopCore.parseCurl);
             if (typeof parseFn !== 'function') return;
 
+            hideApplyNotice();
             const res = parseFn(inputEl.value);
             if (!res.ok) {
                 hideConfirmBar();

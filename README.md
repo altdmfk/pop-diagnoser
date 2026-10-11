@@ -41,7 +41,7 @@
 - **서명 · 공개키 구조 인스펙터**: 서명의 인코딩(`base64url` / 표준 `base64` / `hex`), 바이트 길이, 형식(`raw-rs(64B)` / `der`), `r`·`s` 32B Hex, `s > n/2` (High-S) 여부를 분석합니다. 공개키는 SPKI OID(`ecPublicKey` / `P-256`), 비압축 좌표(`0x04 || X || Y`), P-256 타원곡선 방정식(\(y^2 \equiv x^3 - 3x + b \pmod p\)) 충족 여부, SHA-256 Fingerprint를 확인하며, 실수로 개인키(`PRIVATE KEY`) PEM을 입력하면 파싱하지 않고 경고를 표시합니다.
 - **내장 테스트 서명 생성기**: 브라우저 WebCrypto API(`crypto.subtle`)를 사용해 현재 입력된 요청에 대한 임시 ECDSA P-256 키 쌍, `X-Body-Digest`, 전자서명을 생성합니다.
 - **JSON 문법 오류 위치 표시**: 요청 본문(Body)이 잘못된 JSON일 때 오류 줄·칸 번호를 계산하고, 한글·전각 문자 폭(2칸)과 탭을 보정해 오류 위치 아래에 화살표(`▲`)를 표시합니다.
-- **3개 탭 레이아웃 · 키보드 접근성 · 5개 슬롯 저장소**: 입력 항목을 `HTTP 요청` / `서명 헤더` / `검증 설정` 탭으로 나누고, 좌우 방향키·`Home`·`End` 키 이동과 ARIA 속성을 지원합니다. `localStorage` 기반 슬롯 5개에 전체 입력 상태를 저장하고 불러올 수 있습니다.
+- **4개 탭 레이아웃 · 키보드 접근성 · 5개 슬롯 저장소**: 입력과 보조 도구를 `HTTP 요청` / `서명 헤더` / `검증 설정` / `cURL · 임시저장소` 4개 탭으로 나누고, 좌우 방향키·`Home`·`End` 키 이동과 ARIA 속성을 지원합니다. `localStorage` 기반 슬롯 5개에 전체 입력 상태를 저장하고 불러올 수 있습니다.
 
 ---
 
@@ -96,7 +96,7 @@ flowchart TD
         InspectorUI["js/ui/inspector.js<br/>(Details Panel & Debounced Inspector)"]
         ImporterUI["js/ui/importer.js<br/>(cURL/HTTP Importer & Sample Buttons)"]
         Slots["js/ui/slots.js<br/>(LocalStorage 5 Slots)"]
-        Tabs["js/ui/tabs.js<br/>(3-Tab & Keyboard Controller)"]
+        Tabs["js/ui/tabs.js<br/>(4-Tab & Keyboard Controller)"]
         App["js/app.js<br/>(DOMContentLoaded Bootstrap)"]
 
         JsonError --> Diagnose

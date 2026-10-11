@@ -116,8 +116,31 @@
         }
     }
 
+    let isInspectorActive = false;
+
+    function renderInspectorPlaceholder(container) {
+        if (!container) return;
+        container.textContent = '';
+        const p = document.createElement('div');
+        p.className = 'inspector-placeholder';
+        p.textContent = "'진단 시작'을 실행하면 서명과 공개키의 구조 분석 결과가 표시됩니다.";
+        container.appendChild(p);
+    }
+
+    function resetInspector() {
+        isInspectorActive = false;
+        if (typeof document === 'undefined') return;
+        const detailsEl = document.getElementById('inspector-panel');
+        const sigContainer = document.getElementById('inspector-sig-box');
+        const pubkeyContainer = document.getElementById('inspector-pubkey-box');
+        if (detailsEl) detailsEl.open = false;
+        renderInspectorPlaceholder(sigContainer);
+        renderInspectorPlaceholder(pubkeyContainer);
+    }
+
     async function refreshInspector() {
         if (typeof document === 'undefined' || !coreMod) return;
+        isInspectorActive = true;
         const sigInput = document.getElementById('req-signature');
         const pubkeyInput = document.getElementById('req-pubkey');
         const sigContainer = document.getElementById('inspector-sig-box');
@@ -138,11 +161,10 @@
         if (typeof document === 'undefined') return;
         const sigInput = document.getElementById('req-signature');
         const pubkeyInput = document.getElementById('req-pubkey');
-        const btnInspect = document.getElementById('btn-inspect-now');
-        const detailsEl = document.getElementById('inspector-panel');
 
         let timer = null;
         const scheduleRefresh = () => {
+            if (!isInspectorActive) return;
             if (timer) clearTimeout(timer);
             timer = setTimeout(() => {
                 refreshInspector();
@@ -152,25 +174,13 @@
         if (sigInput) sigInput.addEventListener('input', scheduleRefresh);
         if (pubkeyInput) pubkeyInput.addEventListener('input', scheduleRefresh);
 
-        if (btnInspect) {
-            btnInspect.addEventListener('click', () => {
-                if (detailsEl) detailsEl.open = true;
-                refreshInspector();
-            });
-        }
-
-        if (detailsEl) {
-            detailsEl.addEventListener('toggle', () => {
-                if (detailsEl.open) refreshInspector();
-            });
-        }
-
-        refreshInspector();
+        resetInspector();
     }
 
     return {
         renderSignatureInspect,
         renderPublicKeyInspect,
+        resetInspector,
         refreshInspector,
         initInspector
     };
