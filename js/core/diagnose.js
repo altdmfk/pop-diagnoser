@@ -6,6 +6,8 @@
             require('./profiles/paper.js'),
             require('./encoding.js'),
             require('./ecdsa.js'),
+            require('./inspect.js'),
+            require('./curlParser.js'),
             require('./canonical.js'),
             require('./hypotheses.js'),
             require('../ui/jsonError.js')

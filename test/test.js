@@ -6,7 +6,7 @@ const fixtures = (typeof window !== 'undefined' && window.FIXTURES)
     : require('./fixtures/fixtures.js');
 const PopUI = (typeof window !== 'undefined' && window.PopUI)
     ? window.PopUI
-    : Object.assign({}, require('../js/ui/render.js'), require('../js/ui/slots.js'), require('../js/ui/tabs.js'));
+    : Object.assign({}, require('../js/ui/render.js'), require('../js/ui/slots.js'), require('../js/ui/tabs.js'), require('../js/ui/inspector.js'), require('../js/ui/importer.js'));
 
 async function runTests() {
     const pubkeyPem = fixtures.public_key;
@@ -731,6 +731,640 @@ async function runTests() {
                 passed++;
             } else {
                 console.log(`[FAIL] html-label-for-a11y: labels=${labelTagMatches.length}, withFor=${labelForIds.length}, allTargetsExist=${allTargetsExist}, reqUrlHasAriaLabel=${reqUrlHasAriaLabel}`);
+                failed++;
+            }
+        }
+
+        // =========================================================================
+        // Signature & Public Key Inspector Tests (js/core/inspect.js & js/ui/inspector.js)
+        // =========================================================================
+        const { inspectSignature, inspectPublicKey } = PopCore;
+
+        // 10) inspectSignature: valid 64B raw (base64url), standard base64, and hex encodings
+        {
+            const raw64Res = inspectSignature(vCase.signature);
+            const rawBytes = new Uint8Array(PopCore.base64UrlDecode(vCase.signature));
+            const rawWithHighBytes = new Uint8Array(rawBytes);
+            rawWithHighBytes[0] = 0xfb; // ensures '+' or '/' in standard base64
+            rawWithHighBytes[1] = 0xff;
+            const stdB64Sig = _btoa(String.fromCharCode(...rawWithHighBytes));
+            const stdRes = inspectSignature(stdB64Sig);
+            const hexSig = PopCore.bytesToHex(rawBytes);
+            const hexRes = inspectSignature(hexSig);
+
+            if (
+                raw64Res.ok === true &&
+                raw64Res.encoding === 'base64url' &&
+                typeof raw64Res.encodingReason === 'string' &&
+                raw64Res.byteLength === 64 &&
+                raw64Res.format === 'raw-rs(64B)' &&
+                raw64Res.r.length === 64 &&
+                raw64Res.s.length === 64 &&
+                stdRes.ok === true &&
+                stdRes.encoding === 'base64(standard)' &&
+                stdRes.format === 'raw-rs(64B)' &&
+                hexRes.ok === true &&
+                hexRes.encoding === 'hex' &&
+                hexRes.format === 'raw-rs(64B)' &&
+                hexRes.r === raw64Res.r &&
+                hexRes.s === raw64Res.s
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] inspect-sig-encodings: Failed raw64 / standard base64 / hex signature inspection");
+                failed++;
+            }
+        }
+
+        // 11) inspectSignature: DER (70~72B with leading 0x00 and 68~69B without leading 0x00)
+        {
+            // 72B DER where both r and s have MSB >= 0x80 (so both have leading 0x00 in DER)
+            const rHigh = new Uint8Array(32);
+            rHigh[0] = 0x8a; rHigh[31] = 0x01;
+            const sLow = new Uint8Array(32);
+            sLow[0] = 0x90; sLow[31] = 0x02;
+            const rawBothHigh = new Uint8Array(64);
+            rawBothHigh.set(rHigh, 0);
+            rawBothHigh.set(sLow, 32);
+            const der72 = rawToDer(rawBothHigh); // 2 + (2+33) + (2+33) = 72 bytes
+            const der72Res = inspectSignature(toBase64Url(der72));
+
+            // 68B Short DER where r is 30B (<0x80) and s is 32B (<0x80), no leading 0x00
+            const rShort = new Uint8Array(32);
+            rShort[2] = 0x45; rShort[31] = 0x11;
+            const sNoPad = new Uint8Array(32);
+            sNoPad[0] = 0x3f; sNoPad[31] = 0x22;
+            const rawShort = new Uint8Array(64);
+            rawShort.set(rShort, 0);
+            rawShort.set(sNoPad, 32);
+            const der68 = rawToDer(rawShort); // 2 + (2+30) + (2+32) = 68 bytes
+            const der68Res = inspectSignature(toBase64Url(der68));
+
+            if (
+                der72.byteLength === 72 &&
+                der72Res.ok === true &&
+                der72Res.format === 'der' &&
+                der72Res.rLeadingZeroStripped === true &&
+                der72Res.sLeadingZeroStripped === true &&
+                der72Res.r === PopCore.bytesToHex(rHigh) &&
+                der72Res.s === PopCore.bytesToHex(sLow) &&
+                der68.byteLength === 68 &&
+                der68Res.ok === true &&
+                der68Res.format === 'der' &&
+                der68Res.rLeadingZeroStripped === false &&
+                der68Res.sLeadingZeroStripped === false &&
+                der68Res.r === PopCore.bytesToHex(rShort) &&
+                der68Res.s === PopCore.bytesToHex(sNoPad)
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] inspect-sig-der: Failed 72B/68B DER inspection or leading 0x00 detection");
+                failed++;
+            }
+        }
+
+        // 12) inspectSignature: High-S warning, r=0 warning, r>=n warning, invalid length, invalid DER
+        {
+            // High-S: s = n - 1 (> n/2)
+            const highSBytes = new Uint8Array(64);
+            highSBytes[31] = 0x01; // r = 1
+            const highSHex = (P256_N - 1n).toString(16).padStart(64, '0');
+            for (let i = 0; i < 32; i++) {
+                highSBytes[32 + i] = parseInt(highSHex.slice(i * 2, i * 2 + 2), 16);
+            }
+            const highSRes = inspectSignature(toBase64Url(highSBytes));
+
+            // r = 0
+            const rZeroBytes = new Uint8Array(64);
+            rZeroBytes[63] = 0x01; // r = 0, s = 1
+            const rZeroRes = inspectSignature(toBase64Url(rZeroBytes));
+
+            // Invalid length (e.g. 40B not starting with 0x30)
+            const badLenBytes = new Uint8Array(40);
+            badLenBytes[0] = 0x12;
+            const badLenRes = inspectSignature(toBase64Url(badLenBytes));
+
+            // Invalid DER structure (starts with 0x30 but wrong declared length)
+            const badDerBytes = new Uint8Array([0x30, 0x44, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01]);
+            const badDerRes = inspectSignature(toBase64Url(badDerBytes));
+
+            if (
+                highSRes.ok === true &&
+                highSRes.isHighS === true &&
+                highSRes.warnings.some(w => w.code === 'HIGH_S') &&
+                rZeroRes.ok === true &&
+                rZeroRes.rOutOfRange === true &&
+                rZeroRes.warnings.some(w => w.code === 'R_ZERO') &&
+                badLenRes.ok === false &&
+                badLenRes.format === 'invalid' &&
+                badLenRes.error && badLenRes.error.code === 'INVALID_LENGTH' &&
+                badDerRes.ok === false &&
+                badDerRes.format === 'invalid' &&
+                badDerRes.error && badDerRes.error.code === 'INVALID_DER'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] inspect-sig-warnings-errors: Failed High-S, r=0, invalid length, or invalid DER checks");
+                failed++;
+            }
+        }
+
+        // 13) inspectPublicKey: valid P-256 keys (fixture + generateTestSignature) & independent SHA-256 fingerprint check
+        {
+            const fixPubRes = await inspectPublicKey(pubkeyPem);
+            const genOut = await PopCore.generateTestSignature({
+                method: 'POST',
+                urlStr: 'https://api.example.com/v1/tx',
+                bodyStr: '{"ok":true}',
+                nonce: 'n-inspect',
+                timestampStr: ts
+            });
+            const genPubRes = await inspectPublicKey(genOut.pubkeyPem);
+
+            // Independently compute SHA-256 fingerprint of fixture SPKI DER using crypto.subtle
+            const cleanB64 = pubkeyPem
+                .replace('-----BEGIN PUBLIC KEY-----', '')
+                .replace('-----END PUBLIC KEY-----', '')
+                .replace(/\s/g, '');
+            const bin = PopCore.base64StandardDecode(cleanB64);
+            const independentDigest = await _crypto.subtle.digest('SHA-256', bin);
+            const independentFp = PopCore.bytesToHex(independentDigest);
+
+            if (
+                fixPubRes.ok === true &&
+                fixPubRes.algorithmOid === '1.2.840.10045.2.1' &&
+                fixPubRes.curveOid === '1.2.840.10045.3.1.7' &&
+                fixPubRes.pointFormat === 'uncompressed(0x04)' &&
+                fixPubRes.x.length === 64 &&
+                fixPubRes.y.length === 64 &&
+                fixPubRes.onCurve === true &&
+                fixPubRes.fingerprint === independentFp &&
+                genPubRes.ok === true &&
+                genPubRes.onCurve === true &&
+                genPubRes.fingerprint.length === 64
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] inspect-pubkey-valid-fp: Failed valid P-256 inspection or independent fingerprint match");
+                failed++;
+            }
+        }
+
+        // 14) inspectPublicKey: off-curve point, non-0x04 prefix, P-384 / RSA rejection, corrupted PEM, PRIVATE KEY rejection
+        {
+            const cleanB64 = pubkeyPem
+                .replace('-----BEGIN PUBLIC KEY-----', '')
+                .replace('-----END PUBLIC KEY-----', '')
+                .replace(/\s/g, '');
+            const validSpki = new Uint8Array(PopCore.base64StandardDecode(cleanB64));
+
+            // Corrupt last byte of Y coordinate -> point off curve
+            const offCurveSpki = new Uint8Array(validSpki);
+            offCurveSpki[offCurveSpki.length - 1] ^= 0x01;
+            const offCurvePem = `-----BEGIN PUBLIC KEY-----\n${_btoa(String.fromCharCode(...offCurveSpki))}\n-----END PUBLIC KEY-----`;
+            const offCurveRes = await inspectPublicKey(offCurvePem);
+
+            // Change uncompressed prefix 0x04 (at index validSpki.length - 65) to 0x02 (compressed)
+            const badPrefixSpki = new Uint8Array(validSpki);
+            badPrefixSpki[badPrefixSpki.length - 65] = 0x02;
+            const badPrefixPem = `-----BEGIN PUBLIC KEY-----\n${_btoa(String.fromCharCode(...badPrefixSpki))}\n-----END PUBLIC KEY-----`;
+            const badPrefixRes = await inspectPublicKey(badPrefixPem);
+
+            // Generate a real P-384 SPKI public key via WebCrypto
+            const p384Pair = await _crypto.subtle.generateKey(
+                { name: 'ECDSA', namedCurve: 'P-384' },
+                true,
+                ['sign', 'verify']
+            );
+            const p384Spki = await _crypto.subtle.exportKey('spki', p384Pair.publicKey);
+            const p384Pem = `-----BEGIN PUBLIC KEY-----\n${_btoa(String.fromCharCode(...new Uint8Array(p384Spki)))}\n-----END PUBLIC KEY-----`;
+            const p384Res = await inspectPublicKey(p384Pem);
+
+            // Minimal RSA SPKI DER header (AlgorithmIdentifier with OID 1.2.840.113549.1.1.1 + NULL + BIT STRING)
+            const rsaSpkiBytes = new Uint8Array([
+                0x30, 0x16,
+                0x30, 0x0d,
+                0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
+                0x05, 0x00,
+                0x03, 0x05, 0x00, 0x01, 0x02, 0x03, 0x04
+            ]);
+            const rsaPem = `-----BEGIN PUBLIC KEY-----\n${_btoa(String.fromCharCode(...rsaSpkiBytes))}\n-----END PUBLIC KEY-----`;
+            const rsaRes = await inspectPublicKey(rsaPem);
+
+            // Corrupted PEM (missing END header)
+            const corruptedPemRes = await inspectPublicKey('-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQY=');
+
+            // PRIVATE KEY immediate rejection
+            const privKeyRes = await inspectPublicKey('-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg...\n-----END PRIVATE KEY-----');
+            const ecPrivKeyRes = await inspectPublicKey('-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEI...\n-----END EC PRIVATE KEY-----');
+
+            if (
+                offCurveRes.ok === false &&
+                offCurveRes.onCurve === false &&
+                offCurveRes.error && offCurveRes.error.code === 'POINT_NOT_ON_CURVE' &&
+                badPrefixRes.ok === false &&
+                badPrefixRes.error && badPrefixRes.error.code === 'INVALID_POINT_PREFIX' &&
+                p384Res.ok === false &&
+                p384Res.curveOid === '1.3.132.0.34' &&
+                p384Res.error && p384Res.error.code === 'UNSUPPORTED_CURVE' &&
+                rsaRes.ok === false &&
+                rsaRes.algorithmOid === '1.2.840.113549.1.1.1' &&
+                rsaRes.error && rsaRes.error.code === 'UNSUPPORTED_ALGORITHM_RSA' &&
+                corruptedPemRes.ok === false &&
+                corruptedPemRes.error && corruptedPemRes.error.code === 'INVALID_PEM_FORMAT' &&
+                privKeyRes.ok === false &&
+                privKeyRes.error && privKeyRes.error.code === 'PRIVATE_KEY_REJECTED' &&
+                privKeyRes.warnings.some(w => w.code === 'PRIVATE_KEY_INPUT') &&
+                ecPrivKeyRes.ok === false &&
+                ecPrivKeyRes.error && ecPrivKeyRes.error.code === 'PRIVATE_KEY_REJECTED'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] inspect-pubkey-rejections: Failed off-curve, prefix, P-384, RSA, corrupted PEM, or PRIVATE KEY rejection");
+                failed++;
+            }
+        }
+
+        // 15) XSS regression test for Inspector (Core & UI)
+        {
+            const xssSigReport = inspectSignature('<script>alert(1)</script>');
+            const xssPubReport = await inspectPublicKey('<img src=x onerror=alert(1)>');
+
+            let inspectorInnerHtmlUsed = false;
+            function createInspectorMockNode(tagName) {
+                return {
+                    tagName,
+                    className: '',
+                    children: [],
+                    _text: '',
+                    get textContent() {
+                        return this._text + this.children.map(c => c.textContent).join('');
+                    },
+                    set textContent(val) {
+                        this._text = String(val ?? '');
+                        this.children = [];
+                    },
+                    set innerHTML(_val) {
+                        inspectorInnerHtmlUsed = true;
+                    },
+                    appendChild(child) {
+                        this.children.push(child);
+                        return child;
+                    }
+                };
+            }
+
+            let uiSafe = true;
+            if (typeof window === 'undefined') {
+                const prevDoc = global.document;
+                global.document = {
+                    createElement(tag) {
+                        return createInspectorMockNode(tag.toUpperCase());
+                    },
+                    createTextNode(text) {
+                        const n = createInspectorMockNode('#text');
+                        n._text = String(text ?? '');
+                        return n;
+                    }
+                };
+                try {
+                    const sigBox = createInspectorMockNode('DIV');
+                    const pubBox = createInspectorMockNode('DIV');
+                    PopUI.renderSignatureInspect(sigBox, xssSigReport);
+                    PopUI.renderPublicKeyInspect(pubBox, xssPubReport);
+                    uiSafe = !inspectorInnerHtmlUsed &&
+                        sigBox.textContent.includes('INVALID_ENCODING') &&
+                        pubBox.textContent.includes('INVALID_BASE64');
+                } finally {
+                    global.document = prevDoc;
+                }
+            }
+
+            if (
+                xssSigReport.ok === false &&
+                xssSigReport.error &&
+                !/<(script|img|div|span)\b/i.test(xssSigReport.error.message) &&
+                xssPubReport.ok === false &&
+                xssPubReport.error &&
+                !/<(script|img|div|span)\b/i.test(xssPubReport.error.message) &&
+                uiSafe
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] inspect-xss-regression: Inspector returned HTML or used innerHTML");
+                failed++;
+            }
+        }
+
+        // =========================================================================
+        // cURL & Raw HTTP Parser Tests (js/core/curlParser.js & js/ui/importer.js)
+        // =========================================================================
+        const { parseCurl, parseRawHttp } = PopCore;
+
+        // 16) Chrome/Firefox DevTools "Copy as cURL (bash)" 3 samples (many headers, JSON body, escaped quotes)
+        {
+            const sample1ManyHeaders = [
+                "curl 'https://api.example.com/v1/tx?c=3&a=1&b=2' \\",
+                "  -H 'accept: application/json, text/plain, */*' \\",
+                "  -H 'accept-language: ko-KR,ko;q=0.9,en-US;q=0.8' \\",
+                "  -H 'authorization: Bearer eyJhbGciOiJFUzI1NiJ9.test' \\",
+                "  -H 'content-type: application/json' \\",
+                "  -H 'origin: https://app.example.com' \\",
+                "  -H 'user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)' \\",
+                "  -H 'x-fido2-nonce: n-devtools-1' \\",
+                "  -H 'x-fido2-timestamp: 1700000000' \\",
+                "  -H 'x-fido2-signature: sig-devtools-1' \\",
+                "  -H 'x-body-digest: sha256=deadbeef' \\",
+                "  --data-raw '{\"amount\":1000,\"to\":\"alice\"}' \\",
+                "  --compressed"
+            ].join('\n');
+
+            const sample2MultilineJson =
+                'curl --url "https://api.example.com/v1/transfer" \\\r\n' +
+                '  -X PUT \\\r\n' +
+                '  --header "X-FIDO2-Nonce: n-multi" \\\r\n' +
+                '  --header "X-FIDO2-Timestamp: 1700000100" \\\r\n' +
+                '  --header "X-FIDO2-Signature: sig-multi" \\\r\n' +
+                '  --header "X-Body-Digest: sha256=cafebabe" \\\r\n' +
+                "  --data-binary '{\n  \"amount\": 2500,\n  \"memo\": \"line1 & line2\"\n}'";
+
+            const sample3EscapedQuotes =
+                "curl 'https://api.example.com/v1/note' " +
+                "-H 'X-FIDO2-Nonce: n-quote' " +
+                "-H 'X-FIDO2-Timestamp: 1700000200' " +
+                "-H 'X-FIDO2-Signature: sig-quote' " +
+                "-H 'X-Body-Digest: sha256=112233' " +
+                "--data-raw $'{\"note\":\"Alice\\'s \\\\\"quoted\\\\\" text\\nline2\"}'";
+
+            const r1 = parseCurl(sample1ManyHeaders);
+            const r2 = parseCurl(sample2MultilineJson);
+            const r3 = parseCurl(sample3EscapedQuotes);
+            const uiSampleValid = parseCurl(PopUI.buildImportSample('curl-valid'));
+            const uiSampleDer = parseCurl(PopUI.buildImportSample('curl-der'));
+            const uiSampleRaw = parseCurl(PopUI.buildImportSample('raw-http'));
+
+            if (
+                r1.ok === true &&
+                r1.inputs.method === 'POST' &&
+                r1.inputs.urlStr === 'https://api.example.com/v1/tx?c=3&a=1&b=2' &&
+                r1.inputs.nonce === 'n-devtools-1' &&
+                r1.inputs.timestampStr === '1700000000' &&
+                r1.inputs.signature === 'sig-devtools-1' &&
+                r1.inputs.reqDigest === 'sha256=deadbeef' &&
+                r1.inputs.bodyStr === '{"amount":1000,"to":"alice"}' &&
+                r1.missing.length === 0 &&
+                r2.ok === true &&
+                r2.inputs.method === 'PUT' &&
+                r2.inputs.bodyStr === '{\n  "amount": 2500,\n  "memo": "line1 & line2"\n}' &&
+                r3.ok === true &&
+                r3.inputs.bodyStr === '{"note":"Alice\'s \\"quoted\\" text\nline2"}' &&
+                uiSampleValid.ok === true &&
+                uiSampleDer.ok === true &&
+                uiSampleRaw.ok === true &&
+                uiSampleRaw.format === 'raw-http'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] curl-devtools-samples: Failed to parse DevTools or UI sample cURL commands");
+                failed++;
+            }
+        }
+
+        // 17) Duplicate headers, -d without -X, multiple -d joined with &, missing required fields
+        {
+            const dupAndMultiData =
+                "curl 'https://api.example.com/v1/tx' " +
+                "-H 'X-FIDO2-Nonce: first-nonce' " +
+                "-H 'x-fido2-nonce: final-nonce' " +
+                "-d '{\"a\":1}' -d '{\"b\":2}'";
+            const res = parseCurl(dupAndMultiData);
+
+            if (
+                res.ok === true &&
+                res.inputs.method === 'POST' &&
+                res.inputs.nonce === 'final-nonce' &&
+                res.inputs.bodyStr === '{"a":1}&{"b":2}' &&
+                res.warnings.some(w => w.code === 'DUPLICATE_HEADER') &&
+                res.warnings.some(w => w.code === 'MULTIPLE_DATA_ARGS') &&
+                res.missing.includes('timestampStr') &&
+                res.missing.includes('signature') &&
+                res.missing.includes('reqDigest') &&
+                res.inputs.timestampStr === '' &&
+                res.inputs.signature === ''
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] curl-dup-multi-missing: Failed duplicate header, multiple -d, or missing fields check");
+                failed++;
+            }
+        }
+
+        // 18) Unsupported & security checks: -d @file, --data-urlencode, -F, -G, --json, $(...), $VAR, pipe, cmd ^, empty, >1MB
+        {
+            const fileRes = parseCurl("curl https://api.example.com/v1/tx -d @secret.json");
+            const urlencRes = parseCurl("curl https://api.example.com/v1/tx --data-urlencode 'a=b'");
+            const formRes = parseCurl("curl https://api.example.com/v1/tx -F 'file=@a.txt'");
+            const getFlagRes = parseCurl("curl https://api.example.com/v1/tx -G -d 'a=1'");
+            const jsonFlagRes = parseCurl("curl https://api.example.com/v1/tx --json '{\"a\":1}'");
+            const cmdSubRes = parseCurl("curl https://api.example.com/v1/tx -H \"X-FIDO2-Nonce: $(whoami)\"");
+            const varSubRes = parseCurl("curl https://api.example.com/v1/tx -H $SECRET_HEADER");
+            const pipeRes = parseCurl("curl https://api.example.com/v1/tx | sh");
+            const caretRes = parseCurl("curl https://api.example.com/v1/tx ^\n  -X POST");
+            const emptyRes = parseCurl("   ");
+            const nonCurlRes = parseCurl("wget https://api.example.com/v1/tx");
+            const hugeInput = "curl https://api.example.com/v1/tx -d '" + "x".repeat(600 * 1024) + "'";
+            const hugeRes = parseCurl(hugeInput);
+
+            if (
+                fileRes.ok === false && fileRes.unsupported.some(u => u.code === 'FILE_READ_UNSUPPORTED') &&
+                urlencRes.ok === false && urlencRes.unsupported.some(u => u.code === 'UNSUPPORTED_OPTION') &&
+                formRes.ok === false && formRes.unsupported.some(u => u.code === 'UNSUPPORTED_OPTION') &&
+                getFlagRes.ok === false && getFlagRes.unsupported.some(u => u.code === 'UNSUPPORTED_OPTION') &&
+                jsonFlagRes.ok === false && jsonFlagRes.unsupported.some(u => u.code === 'UNSUPPORTED_OPTION') &&
+                cmdSubRes.ok === false && cmdSubRes.unsupported.some(u => u.code === 'SHELL_EXPANSION_UNSUPPORTED') &&
+                varSubRes.ok === false && varSubRes.unsupported.some(u => u.code === 'SHELL_EXPANSION_UNSUPPORTED') &&
+                pipeRes.ok === false && pipeRes.unsupported.some(u => u.code === 'PIPE_OR_REDIRECTION_UNSUPPORTED') &&
+                caretRes.ok === false && caretRes.unsupported.some(u => u.code === 'CMD_CARET_CONTINUATION') &&
+                emptyRes.ok === false && emptyRes.unsupported.some(u => u.code === 'EMPTY_INPUT') &&
+                nonCurlRes.ok === false && nonCurlRes.unsupported.some(u => u.code === 'NOT_CURL_COMMAND') &&
+                hugeRes.ok === false && hugeRes.unsupported.some(u => u.code === 'INPUT_TOO_LARGE')
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] curl-unsupported-security: One or more unsupported/security checks did not report properly");
+                failed++;
+            }
+        }
+
+        // 19) Raw HTTP parsing (both CRLF and LF, Host + path reconstruction with https default warning)
+        {
+            const rawLines = [
+                'POST /v1/tx?c=3&a=1&b=2 HTTP/1.1',
+                'Host: api.example.com',
+                'Content-Type: application/json',
+                'X-FIDO2-Nonce: n-raw-1',
+                'X-FIDO2-Timestamp: 1700000000',
+                'X-FIDO2-Signature: sig-raw-1',
+                'X-Body-Digest: sha256=abcdef',
+                '',
+                '{',
+                '  "amount": 1000',
+                '}'
+            ];
+            const crlfHttp = rawLines.join('\r\n');
+            const lfHttp = rawLines.join('\n');
+
+            const crlfRes = parseCurl(crlfHttp);
+            const lfRes = parseRawHttp(lfHttp);
+
+            if (
+                crlfRes.ok === true &&
+                crlfRes.format === 'raw-http' &&
+                crlfRes.inputs.method === 'POST' &&
+                crlfRes.inputs.urlStr === 'https://api.example.com/v1/tx?c=3&a=1&b=2' &&
+                crlfRes.inputs.nonce === 'n-raw-1' &&
+                crlfRes.inputs.bodyStr === '{\r\n  "amount": 1000\r\n}' &&
+                crlfRes.warnings.some(w => w.code === 'DEFAULT_HTTPS_SCHEME') &&
+                lfRes.ok === true &&
+                lfRes.inputs.urlStr === 'https://api.example.com/v1/tx?c=3&a=1&b=2' &&
+                lfRes.inputs.bodyStr === '{\n  "amount": 1000\n}'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] raw-http-crlf-lf: Failed CRLF/LF Raw HTTP parsing");
+                failed++;
+            }
+        }
+
+        // 20) Round-trip test: fixture -> cURL command -> parseCurl -> diagnose matches direct fixture diagnosis
+        {
+            let allRoundTripsOk = true;
+            for (const c of fixtures.cases) {
+                const url = `https://${c.host}${c.path}?${c.query}`;
+                const escapedBody = c.body.replace(/'/g, "'\\''");
+                const curlParts = [
+                    `curl '${url}'`,
+                    `-X '${c.method}'`,
+                    `-H 'X-FIDO2-Nonce: ${c.nonce}'`,
+                    `-H 'X-FIDO2-Timestamp: ${c.timestamp}'`,
+                    `-H 'X-FIDO2-Signature: ${c.signature}'`
+                ];
+                if (c.digest) {
+                    curlParts.push(`-H 'X-Body-Digest: ${c.digest}'`);
+                }
+                if (c.body !== '') {
+                    curlParts.push(`--data-binary '${escapedBody}'`);
+                }
+                const curlCmd = curlParts.join(' \\\n  ');
+                const parsed = parseCurl(curlCmd);
+                if (!parsed.ok) {
+                    allRoundTripsOk = false;
+                    break;
+                }
+
+                const directRes = await PopCore.diagnose({
+                    method: c.method,
+                    urlStr: url,
+                    bodyStr: c.body,
+                    nonce: c.nonce,
+                    timestampStr: String(c.timestamp),
+                    signature: c.signature,
+                    pubkeyPem,
+                    evalTime: c.evalTime,
+                    reqDigest: c.digest
+                });
+
+                const roundTripRes = await PopCore.diagnose({
+                    ...parsed.inputs,
+                    pubkeyPem,
+                    evalTime: c.evalTime
+                });
+
+                if (
+                    directRes.firstFailedStage !== roundTripRes.firstFailedStage ||
+                    JSON.stringify(directRes.hypothesisResult) !== JSON.stringify(roundTripRes.hypothesisResult)
+                ) {
+                    allRoundTripsOk = false;
+                    break;
+                }
+            }
+
+            if (allRoundTripsOk) {
+                passed++;
+            } else {
+                console.log("[FAIL] curl-diagnose-roundtrip: Fixture -> cURL -> parseCurl -> diagnose mismatch");
+                failed++;
+            }
+        }
+
+        // 21) XSS regression test for cURL parser & importer UI
+        {
+            const xssCurl =
+                "curl 'https://api.example.com/v1/tx' " +
+                "-H 'X-FIDO2-Nonce: <script>alert(1)</script>' " +
+                "-H 'X-FIDO2-Nonce: <img src=x onerror=alert(2)>' " +
+                "--data-raw '{\"xss\":\"<svg onload=alert(3)>\"}'";
+            const xssParsed = parseCurl(xssCurl);
+
+            let importerInnerHtmlUsed = false;
+            function createImporterMockNode(tagName) {
+                return {
+                    tagName,
+                    className: '',
+                    classList: {
+                        remove() {},
+                        add() {}
+                    },
+                    children: [],
+                    _text: '',
+                    get textContent() {
+                        return this._text + this.children.map(c => c.textContent).join('');
+                    },
+                    set textContent(val) {
+                        this._text = String(val ?? '');
+                        this.children = [];
+                    },
+                    set innerHTML(_val) {
+                        importerInnerHtmlUsed = true;
+                    },
+                    appendChild(child) {
+                        this.children.push(child);
+                        return child;
+                    }
+                };
+            }
+
+            let importerUiSafe = true;
+            if (typeof window === 'undefined') {
+                const prevDoc = global.document;
+                global.document = {
+                    createElement(tag) {
+                        return createImporterMockNode(tag.toUpperCase());
+                    },
+                    createTextNode(text) {
+                        const n = createImporterMockNode('#text');
+                        n._text = String(text ?? '');
+                        return n;
+                    }
+                };
+                try {
+                    const banner = createImporterMockNode('DIV');
+                    PopUI.renderImportStatus(banner, xssParsed);
+                    importerUiSafe = !importerInnerHtmlUsed && banner.textContent.includes('채워진 필드');
+                } finally {
+                    global.document = prevDoc;
+                }
+            }
+
+            if (
+                xssParsed.ok === true &&
+                xssParsed.inputs.nonce === '<img src=x onerror=alert(2)>' &&
+                xssParsed.inputs.bodyStr === '{"xss":"<svg onload=alert(3)>"}' &&
+                importerUiSafe
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] curl-xss-regression: cURL parser altered HTML payload or importer UI used innerHTML");
                 failed++;
             }
         }

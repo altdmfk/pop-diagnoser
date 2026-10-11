@@ -1,12 +1,15 @@
 import os
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 def check_files():
     files_to_check = [
         "index.html", "README.md", "css/style.css", "test.html",
         "js/core/profiles/paper.js", "js/core/encoding.js", "js/core/ecdsa.js",
-        "js/core/canonical.js", "js/core/hypotheses.js", "js/core/diagnose.js",
-        "js/ui/jsonError.js", "js/ui/tabs.js", "js/ui/slots.js", "js/ui/render.js",
+        "js/core/inspect.js", "js/core/curlParser.js", "js/core/canonical.js", "js/core/hypotheses.js", "js/core/diagnose.js",
+        "js/ui/jsonError.js", "js/ui/tabs.js", "js/ui/slots.js", "js/ui/render.js", "js/ui/inspector.js", "js/ui/importer.js",
         "js/app.js", "test.js", "test/test.js", "test/test-runner.js",
         "test/fixtures/fixtures.js", "tools/generate_fixtures.py",
         "tools/differential_check.py", "tools/golden_pass.js"

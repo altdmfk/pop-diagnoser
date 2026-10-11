@@ -47,12 +47,36 @@
     <div class="top-action-bar" >
       <button id="btn-generate-test" class="btn-primary">🔧 내 입력값으로 서명 생성</button>
       <button id="btn-diagnose" class="btn-primary">진단 시작</button>
+      <button type="button" id="btn-inspect-now" class="btn-small">🔍 서명·공개키 분석</button>
     </div>
 
     <details class="memory-accordion">
       <summary>📁 임시저장소 (슬롯 1~5)</summary>
       <div class="memory-content" id="memory-slots-container">
         <!-- Rendered via JS -->
+      </div>
+    </details>
+
+    <details id="curl-import-accordion" class="memory-accordion import-accordion">
+      <summary>📋 cURL / Raw HTTP 붙여넣기 (요청 자동 채우기)</summary>
+      <div class="import-content">
+        <div class="import-header-row">
+          <label for="curl-import-input" class="import-label">cURL 명령어(Copy as cURL - bash) 또는 Raw HTTP 원문</label>
+          <div class="import-sample-buttons">
+            <button type="button" id="btn-sample-curl-valid" class="btn-small btn-import-sample">샘플: 정상 cURL</button>
+            <button type="button" id="btn-sample-curl-der" class="btn-small btn-import-sample">샘플: 실패 cURL (DER 서명)</button>
+            <button type="button" id="btn-sample-raw-http" class="btn-small btn-import-sample">샘플: Raw HTTP</button>
+          </div>
+        </div>
+        <textarea id="curl-import-input" rows="4" maxlength="550000" placeholder="curl 'https://api.example.com/v1/tx?a=1' -X POST -H 'X-FIDO2-Nonce: ...' --data-raw '{...}' 또는 Raw HTTP 요청을 붙여넣으세요."></textarea>
+        <div class="import-actions">
+          <button type="button" id="btn-curl-apply" class="btn-primary">📥 입력칸에 채우기</button>
+          <div id="curl-confirm-bar" class="import-confirm-bar hidden">
+            <span class="import-confirm-msg">⚠️ 기존 입력값이 있습니다. 덮어쓰시겠습니까?</span>
+            <button type="button" id="btn-curl-confirm-yes" class="btn-small btn-confirm-yes">덮어쓰기</button>
+            <button type="button" id="btn-curl-confirm-no" class="btn-small btn-confirm-no">취소</button>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -134,6 +158,8 @@
 
         <h3>진단 결과</h3>
 
+        <div id="import-status-banner" class="import-status-banner hidden"></div>
+
         <div id="result-panel" class="result-panel empty" role="status" aria-live="polite">
 
           <p class="placeholder-text">왼쪽에서 데이터를 입력하고 '진단 시작'을 눌러주세요.</p>
@@ -152,6 +178,20 @@
 
         </div>
 
+        <details id="inspector-panel" class="inspector-accordion">
+          <summary>🔍 서명 · 공개키 구조 인스펙터 (Signature &amp; Public Key Inspector)</summary>
+          <div class="inspector-content">
+            <div class="inspector-card">
+              <h5>서명 (Signature) 구조 분석</h5>
+              <div id="inspector-sig-box"></div>
+            </div>
+            <div class="inspector-card">
+              <h5>공개키 (Public Key) 구조 분석</h5>
+              <div id="inspector-pubkey-box"></div>
+            </div>
+          </div>
+        </details>
+
       </div>
 
     </div>
@@ -166,6 +206,8 @@
   <script src="js/core/profiles/paper.js"></script>
   <script src="js/core/encoding.js"></script>
   <script src="js/core/ecdsa.js"></script>
+  <script src="js/core/inspect.js"></script>
+  <script src="js/core/curlParser.js"></script>
   <script src="js/core/canonical.js"></script>
   <script src="js/core/hypotheses.js"></script>
   <script src="js/ui/jsonError.js"></script>
@@ -173,6 +215,8 @@
   <script src="js/ui/render.js"></script>
   <script src="js/ui/slots.js"></script>
   <script src="js/ui/tabs.js"></script>
+  <script src="js/ui/inspector.js"></script>
+  <script src="js/ui/importer.js"></script>
   <script src="js/app.js"></script>
 
 </body>

@@ -29,11 +29,20 @@
             renderGenerateSuccess,
             renderGenerateError,
             initMemorySlots,
-            initTabs
+            initTabs,
+            initInspector,
+            refreshInspector,
+            initImporter
         } = root.PopUI;
 
         initTabs();
         initMemorySlots();
+        if (typeof initInspector === 'function') {
+            initInspector();
+        }
+        if (typeof initImporter === 'function') {
+            initImporter();
+        }
 
         const evalTimeInput = document.getElementById('eval-timestamp');
         document.getElementById('btn-now').addEventListener('click', () => {
@@ -67,6 +76,7 @@
             setVal('req-pubkey', root.FIXTURES.public_key || DEFAULT_FALLBACK_PUBKEY);
 
             if (evalTimeInput) evalTimeInput.value = root.FIXTURES.eval_time;
+            if (typeof refreshInspector === 'function') refreshInspector();
 
             if (showFeedback) {
                 showToast('✅ 선택하신 예시 데이터가 모든 탭에 자동 입력되었습니다.');
@@ -92,6 +102,7 @@
             const panel = document.getElementById('result-panel');
             setPlaceholder(panel, ["왼쪽에서 데이터를 입력하고 '진단 시작'을 눌러주세요."]);
             setOverheadVisible(false);
+            if (typeof refreshInspector === 'function') refreshInspector();
         });
 
         loadDemo('valid');
@@ -123,6 +134,7 @@
                 document.getElementById('req-nonce').value = inputs.nonce;
                 document.getElementById('req-method').value = inputs.method;
 
+                if (typeof refreshInspector === 'function') refreshInspector();
                 showToast('✨ 새로운 서명이 생성되어 적용되었습니다!');
                 renderGenerateSuccess(panel);
                 setOverheadVisible(false);

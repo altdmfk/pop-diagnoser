@@ -21,6 +21,12 @@
         timestampToleranceSec: 60,
         maxSearchNodes: 2000,
         maxComboDepth: 3,
+        headers: {
+            nonce: 'X-FIDO2-Nonce',
+            timestamp: 'X-FIDO2-Timestamp',
+            signature: 'X-FIDO2-Signature',
+            digest: 'X-Body-Digest'
+        },
         stages: {
             1: {
                 id: 1,
