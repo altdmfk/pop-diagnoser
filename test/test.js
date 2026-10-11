@@ -1217,6 +1217,26 @@ async function runTests() {
             const crlfRes = parseCurl(crlfHttp);
             const lfRes = parseRawHttp(lfHttp);
 
+            const brokenJsonHttp = [
+                'POST /v1/tx?c=3&a=1&b=2 HTTP/1.1',
+                'Host: api.example.com',
+                'Content-Type: application/json',
+                'X-FIDO2-Nonce: n-123456789',
+                'X-FIDO2-Timestamp: 1791356800',
+                'X-FIDO2-Signature: -2M3ebL7X2gWy_XhoePc8igyBlGZDYBbo8hcLztVnhfz-38OER3tW1RrooCSk_ybQ5O-c4DoLeWyaaQjc4Q_Yw',
+                'X-Body-Digest: sha256=11abf1e8f4f0c1d061f050db6235625033a2b55f486027c92c88b02542408e18',
+                '',
+                '',
+                '  "amount": 1000,',
+                '  "to": "alice"',
+                '}'
+            ].join('\n');
+            const brokenParsed = parseCurl(brokenJsonHttp);
+            const brokenDiag = await PopCore.diagnose({
+                ...brokenParsed.inputs,
+                pubkeyPem: '' // even when pubkeyPem is empty, broken JSON should be caught
+            });
+
             if (
                 crlfRes.ok === true &&
                 crlfRes.format === 'raw-http' &&
@@ -1227,11 +1247,15 @@ async function runTests() {
                 crlfRes.warnings.some(w => w.code === 'DEFAULT_HTTPS_SCHEME') &&
                 lfRes.ok === true &&
                 lfRes.inputs.urlStr === 'https://api.example.com/v1/tx?c=3&a=1&b=2' &&
-                lfRes.inputs.bodyStr === '{\n  "amount": 1000\n}'
+                lfRes.inputs.bodyStr === '{\n  "amount": 1000\n}' &&
+                brokenParsed.ok === true &&
+                brokenDiag.error &&
+                brokenDiag.error.message.includes('올바른 JSON 형식이 아닙니다') &&
+                brokenDiag.error.detail.includes('▲')
             ) {
                 passed++;
             } else {
-                console.log("[FAIL] raw-http-crlf-lf: Failed CRLF/LF Raw HTTP parsing");
+                console.log("[FAIL] raw-http-crlf-lf: Failed CRLF/LF or broken JSON Raw HTTP parsing/diagnosis");
                 failed++;
             }
         }

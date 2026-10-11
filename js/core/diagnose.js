@@ -54,13 +54,34 @@
 
     function evaluateStage1Headers(norm, profile) {
         const def = profile.stages[1];
-        const passed = !!(norm.method && norm.urlStr && norm.nonce && norm.timestampStr && norm.signature && norm.pubkeyPem);
+        const missingReqFields = [];
+        if (!norm.method) missingReqFields.push('HTTP 메서드');
+        if (!norm.urlStr) missingReqFields.push('요청 URL');
+        if (!norm.nonce) missingReqFields.push('Nonce');
+        if (!norm.timestampStr) missingReqFields.push('Timestamp');
+        if (!norm.signature) missingReqFields.push('Signature(서명)');
+
+        const missingPubkey = !norm.pubkeyPem;
+        const passed = missingReqFields.length === 0 && !missingPubkey;
+
+        let failReason = def.failReason;
+        if (!passed) {
+            if (missingReqFields.length === 0 && missingPubkey) {
+                failReason = "검증에 필요한 공개키(PEM)가 비어 있습니다. '검증 설정' 탭에서 공개키를 입력해 주세요.";
+            } else {
+                const allMissing = missingPubkey
+                    ? [...missingReqFields, '공개키(PEM)']
+                    : missingReqFields;
+                failReason = `필수 항목 중 누락된 값이 있습니다: ${allMissing.join(', ')}`;
+            }
+        }
+
         return {
             passed,
             stage: {
                 name: def.name,
                 status: passed ? "pass" : "fail",
-                reason: passed ? def.passReason : def.failReason
+                reason: passed ? def.passReason : failReason
             }
         };
     }
@@ -360,6 +381,18 @@
             expectedCanonical: "",
             hypothesisResult: null
         };
+
+        if (norm.bodyStr.trim()) {
+            try {
+                JSON.parse(norm.bodyStr);
+            } catch (e) {
+                result.error = {
+                    message: '요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\n쉼표(,)나 따옴표(")가 빠졌거나 오타가 있는지 확인해 주세요.',
+                    detail: getJsonErrorSnippet(e, norm.bodyStr)
+                };
+                return result;
+            }
+        }
 
         const s1 = evaluateStage1Headers(norm, activeProfile);
         result.stages.push(s1.stage);
