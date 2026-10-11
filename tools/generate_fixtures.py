@@ -44,8 +44,7 @@ def make_fixture(name, method, host, path, query, body, nonce, timestamp, sign_m
         "digest": f"sha256={hashlib.sha256(body.encode('utf-8')).hexdigest()}",
         "signature": signature_b64,
         "expected": expected or {},
-        "evalTime": eval_time if eval_time is not None else timestamp,
-        "credentialId": "test-user-credential-id"
+        "evalTime": eval_time if eval_time is not None else timestamp
     }
 
 cases = []
@@ -121,5 +120,8 @@ cases[-1]["digest"] = f"sha256={bh_wrong}"
 
 out = f"const FIXTURES = {{ 'eval_time': {timestamp}, 'public_key': {json.dumps(sim.get_public_key_pem())}, 'cases': {json.dumps(cases, indent=2)} }};\nif (typeof window !== 'undefined') window.FIXTURES = FIXTURES;\nif (typeof module !== 'undefined') module.exports = FIXTURES;"
 
-with open('fixtures.js', 'w', encoding='utf-8') as f:
+import os
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+target_path = os.path.join(base_dir, 'test', 'fixtures', 'fixtures.js')
+with open(target_path, 'w', encoding='utf-8') as f:
     f.write(out)

@@ -14,8 +14,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "firstFailedStage": null,
       "type": "skipped"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "query-sorted",
@@ -33,8 +32,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "query-sorted"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "method-lowercase",
@@ -52,8 +50,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "method-lowercase"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "path-trailing-slash-add",
@@ -71,8 +68,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "path-trailing-slash-add"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "digest-base64url",
@@ -90,8 +86,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "digest-base64url"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "newline-crlf",
@@ -109,8 +104,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "newline-crlf"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "sig-der",
@@ -128,8 +122,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "sig-der"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "combo-2",
@@ -147,8 +140,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "method-lowercase,query-sorted"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "combo-2-2",
@@ -166,8 +158,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "query-sorted"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "outside-catalog",
@@ -184,8 +175,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "firstFailedStage": 4,
       "type": "no-match"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "wrong-key",
@@ -202,8 +192,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "firstFailedStage": 4,
       "type": "no-match"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "indistinguishable",
@@ -220,8 +209,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "firstFailedStage": 4,
       "type": "indistinguishable"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "timestamp-fail",
@@ -238,8 +226,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "firstFailedStage": 2,
       "type": "skipped"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "digest-fail",
@@ -256,8 +243,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "firstFailedStage": 5,
       "type": "no-match"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "host-rewritten",
@@ -275,8 +261,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "host-rewritten"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   },
   {
     "name": "both-fail",
@@ -294,8 +279,7 @@ const FIXTURES = { 'eval_time': 1791356800, 'public_key': "-----BEGIN PUBLIC KEY
       "type": "match",
       "idStr": "host-rewritten"
     },
-    "evalTime": 1791356800,
-    "credentialId": "test-user-credential-id"
+    "evalTime": 1791356800
   }
 ] };
 if (typeof window !== 'undefined') window.FIXTURES = FIXTURES;

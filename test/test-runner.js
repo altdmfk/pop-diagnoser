@@ -1,6 +1,6 @@
 const resultsDiv = document.getElementById('results');
 const originalLog = console.log;
-console.log = function(...args) {
+console.log = function (...args) {
     originalLog.apply(console, args);
     const p = document.createElement('p');
     p.textContent = args.join(' ');
@@ -9,11 +9,10 @@ console.log = function(...args) {
     resultsDiv.appendChild(p);
 };
 
-// Run tests (test.js executes automatically)
-setTimeout(() => {
-    if (typeof window.FIXTURES !== 'undefined') {
-        runTests().catch(console.error);
+window.addEventListener('DOMContentLoaded', () => {
+    if (typeof window.FIXTURES !== 'undefined' && typeof window.runTests === 'function') {
+        window.runTests().catch(console.error);
     } else {
-        console.log("[ERROR] FIXTURES not loaded");
+        console.log("[ERROR] FIXTURES or runTests not loaded");
     }
-}, 100);
+});

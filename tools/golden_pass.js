@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const PopCore = require('../diagnose-core.js');
+const PopCore = require('../js/core/diagnose.js');
 
 const fixturesPath = path.join(__dirname, 'differential_fixtures.json');
 const fixtures = JSON.parse(fs.readFileSync(fixturesPath, 'utf8'));

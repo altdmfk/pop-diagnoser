@@ -3,9 +3,13 @@ import sys
 
 def check_files():
     files_to_check = [
-        "index.html", "README.md", "app.js", "style.css", "test.html",
-        "test.js", "generate_fixtures.py", "tools/differential_check.py",
-        "tools/golden_pass.js", "fixtures.js"
+        "index.html", "README.md", "css/style.css", "test.html",
+        "js/core/profiles/paper.js", "js/core/encoding.js", "js/core/ecdsa.js",
+        "js/core/canonical.js", "js/core/hypotheses.js", "js/core/diagnose.js",
+        "js/ui/jsonError.js", "js/ui/tabs.js", "js/ui/slots.js", "js/ui/render.js",
+        "js/app.js", "test.js", "test/test.js", "test/test-runner.js",
+        "test/fixtures/fixtures.js", "tools/generate_fixtures.py",
+        "tools/differential_check.py", "tools/golden_pass.js"
     ]
     
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

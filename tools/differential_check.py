@@ -1,7 +1,6 @@
 import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-import sys
 import os
 import json
 import time
@@ -89,7 +88,7 @@ def run_test(case_name, desc, method, path, query, body, mod_header=None, mod_bo
     }
     
     script = f"""
-const PopCore = require('./diagnose-core.js');
+const PopCore = require('./js/core/diagnose.js');
 const inputs = {json.dumps(inputs)};
 PopCore.diagnose(inputs).then(r => {{
     if (r.error) console.log("Error: " + r.error.message);
@@ -99,8 +98,7 @@ PopCore.diagnose(inputs).then(r => {{
     with open('temp_run.js', 'w', encoding='utf-8') as f:
         f.write(script)
     app_stage = subprocess.check_output(['node', 'temp_run.js']).decode('utf-8').strip()
-    if app_stage == "Pass": app_stage = "Pass"
-    else: 
+    if app_stage != "Pass":
         try: app_stage = int(app_stage)
         except: pass
     
