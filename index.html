@@ -12,7 +12,7 @@
   
 
   <title>PoP 게이트웨이 401/403/400 진단기</title>
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="css/style.css">
 
 </head>
 
@@ -22,7 +22,7 @@
 
         <header>
       <h1>FIDO2 PoP 진단기</h1>
-      <p>이 도구는 <a href="https://altdmfk.github.io/fido2-pop-gateway/" target="_blank">FIDO2 PoP 게이트웨이 프로젝트</a>의 검증 로직(1~5단계)을 시뮬레이션하는 로컬 샌드박스입니다.</p>
+      <p>이 도구는 <a href="https://altdmfk.github.io/fido2-pop-gateway/" target="_blank" rel="noopener noreferrer">FIDO2 PoP 게이트웨이 프로젝트</a>의 검증 로직(1~5단계)을 시뮬레이션하는 로컬 샌드박스입니다.</p>
       <div class="alert info">
         API가 '401 Unauthorized'를 반환할 때, 서명된 요청을 붙여넣어 어느 단계에서 실패했는지 확인할 수 있습니다.<br>
         (Authorization 헤더의 JWT 디코딩 및 바인딩 검증 등 서버 상태가 필요한 로직은 제외됩니다.)
@@ -142,7 +142,7 @@
 
         
 
-        <div class="overhead-info" id="overhead-info">
+        <div class="overhead-info hidden" id="overhead-info">
 
           <h4>💡 페이로드 절감 효과 (논문 수치 반영)</h4>
 
@@ -160,11 +160,20 @@
 
 
 
-  <script src="fixtures.js?v=8"></script>
-
-  <script src="diagnose-core.js?v=8"></script>
-
-  <script src="app.js?v=8"></script>
+  <!-- Script Load Order (IIFE/UMD, no ES modules for file:// compatibility):
+       1. Fixtures -> 2. Core Profile & Modules -> 3. JSON Error Formatter -> 4. Core Diagnose Engine -> 5. UI Modules -> 6. App Bootstrap -->
+  <script src="test/fixtures/fixtures.js"></script>
+  <script src="js/core/profiles/paper.js"></script>
+  <script src="js/core/encoding.js"></script>
+  <script src="js/core/ecdsa.js"></script>
+  <script src="js/core/canonical.js"></script>
+  <script src="js/core/hypotheses.js"></script>
+  <script src="js/ui/jsonError.js"></script>
+  <script src="js/core/diagnose.js"></script>
+  <script src="js/ui/render.js"></script>
+  <script src="js/ui/slots.js"></script>
+  <script src="js/ui/tabs.js"></script>
+  <script src="js/app.js"></script>
 
 </body>
 
