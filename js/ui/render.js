@@ -12,6 +12,8 @@
         if (typeof document === 'undefined') return;
         const t = document.createElement('div');
         t.className = isError ? 'toast toast-error' : 'toast';
+        t.setAttribute('role', isError ? 'alert' : 'status');
+        t.setAttribute('aria-live', isError ? 'assertive' : 'polite');
         t.textContent = msg;
         document.body.appendChild(t);
 

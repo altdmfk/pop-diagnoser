@@ -58,7 +58,7 @@
 
                 const btnSave = document.createElement('button');
                 btnSave.className = 'btn-small btn-slot-save';
-                btnSave.textContent = '💾 현재 탭 저장';
+                btnSave.textContent = '💾 현재 입력 저장';
                 btnSave.addEventListener('click', () => saveToSlot(i));
                 slotDiv.appendChild(btnSave);
 

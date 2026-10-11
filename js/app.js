@@ -43,12 +43,12 @@
 
         const loadDemo = (fixtureName, showFeedback = false) => {
             if (!root.FIXTURES || !root.FIXTURES.cases) {
-                alert("데모 데이터를 불러오지 못했습니다. (fixtures.js 확인 필요)");
+                showToast('⚠️ 데모 데이터를 불러오지 못했습니다. (fixtures.js 확인 필요)', true);
                 return;
             }
             const fixture = root.FIXTURES.cases.find(c => c.name === fixtureName);
             if (!fixture) {
-                alert("해당 데모 케이스를 찾을 수 없습니다.");
+                showToast('⚠️ 해당 데모 케이스를 찾을 수 없습니다.', true);
                 return;
             }
 

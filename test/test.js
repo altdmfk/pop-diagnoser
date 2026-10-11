@@ -6,7 +6,7 @@ const fixtures = (typeof window !== 'undefined' && window.FIXTURES)
     : require('./fixtures/fixtures.js');
 const PopUI = (typeof window !== 'undefined' && window.PopUI)
     ? window.PopUI
-    : Object.assign({}, require('../js/ui/render.js'), require('../js/ui/slots.js'));
+    : Object.assign({}, require('../js/ui/render.js'), require('../js/ui/slots.js'), require('../js/ui/tabs.js'));
 
 async function runTests() {
     const pubkeyPem = fixtures.public_key;
@@ -679,6 +679,60 @@ async function runTests() {
         } else {
             console.log("[FAIL] profile-injection: Custom timestampToleranceSec in profile was not applied");
             failed++;
+        }
+
+        // 8) Tab keyboard navigation pure function unit test (getNextTabIndex)
+        const { getNextTabIndex } = PopUI;
+        if (
+            typeof getNextTabIndex === 'function' &&
+            getNextTabIndex(0, 'ArrowRight', 3) === 1 &&
+            getNextTabIndex(2, 'ArrowRight', 3) === 0 &&
+            getNextTabIndex(0, 'ArrowLeft', 3) === 2 &&
+            getNextTabIndex(2, 'ArrowLeft', 3) === 1 &&
+            getNextTabIndex(2, 'Home', 3) === 0 &&
+            getNextTabIndex(0, 'End', 3) === 2 &&
+            getNextTabIndex(1, 'Tab', 3) === null &&
+            getNextTabIndex(-1, 'ArrowRight', 3) === null &&
+            getNextTabIndex(0, 'ArrowRight', 0) === null
+        ) {
+            passed++;
+        } else {
+            console.log("[FAIL] tab-keyboard-index: getNextTabIndex failed boundary or wrap-around assertions");
+            failed++;
+        }
+
+        // 9) Static accessibility check (Node): every <label for="..."> in index.html points to an existing id
+        if (typeof window === 'undefined') {
+            const fs = require('fs');
+            const path = require('path');
+            const htmlPath = path.join(__dirname, '..', 'index.html');
+            const html = fs.readFileSync(htmlPath, 'utf8');
+
+            const allIds = new Set();
+            const idRegex = /\bid\s*=\s*"([^"]+)"/g;
+            let idMatch;
+            while ((idMatch = idRegex.exec(html)) !== null) {
+                allIds.add(idMatch[1]);
+            }
+
+            const labelTagMatches = html.match(/<label\b[^>]*>/g) || [];
+            const labelForIds = [];
+            const forRegex = /\bfor\s*=\s*"([^"]+)"/;
+            for (const tag of labelTagMatches) {
+                const m = forRegex.exec(tag);
+                if (m) labelForIds.push(m[1]);
+            }
+
+            const allLabelsHaveFor = labelTagMatches.length > 0 && labelTagMatches.length === labelForIds.length;
+            const allTargetsExist = labelForIds.every(targetId => allIds.has(targetId));
+            const reqUrlHasAriaLabel = /<input\b[^>]*\bid="req-url"[^>]*\baria-label="요청 URL"/.test(html);
+
+            if (allLabelsHaveFor && allTargetsExist && reqUrlHasAriaLabel) {
+                passed++;
+            } else {
+                console.log(`[FAIL] html-label-for-a11y: labels=${labelTagMatches.length}, withFor=${labelForIds.length}, allTargetsExist=${allTargetsExist}, reqUrlHasAriaLabel=${reqUrlHasAriaLabel}`);
+                failed++;
+            }
         }
     }
 

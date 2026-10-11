@@ -453,3 +453,46 @@ textarea {
   opacity: 1;
   top: 40px;
 }
+
+/* Keyboard accessibility: visible focus indicator for all interactive elements */
+button:focus-visible,
+.tab-btn:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+/* Responsive layout for mobile and narrow screens */
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+  }
+  .main-content {
+    grid-template-columns: 1fr;
+  }
+  .input-section,
+  .result-section {
+    min-width: 0;
+  }
+  .tabs,
+  .top-action-bar,
+  .eval-time-group,
+  .url-input-group,
+  .memory-slot {
+    flex-wrap: wrap;
+  }
+  #req-method {
+    width: 100%;
+  }
+  #req-url {
+    min-width: 0;
+    width: 100%;
+  }
+  .tab-pane {
+    min-height: auto;
+  }
+}
+
