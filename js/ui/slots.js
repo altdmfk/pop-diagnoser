@@ -128,6 +128,9 @@
                     "확인을 위해 '진단 시작' 버튼을 눌러주세요."
                 ]);
                 setOverheadVisible(false);
+                if (typeof renderMod.refreshInspector === 'function') {
+                    renderMod.refreshInspector();
+                }
             }
         }
 

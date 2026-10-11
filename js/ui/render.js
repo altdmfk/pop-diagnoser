@@ -121,6 +121,13 @@
             detailBox.textContent = `📌 에러 상세:\n${error.detail}`;
             errDiv.appendChild(detailBox);
         }
+
+        if (typeof error.message === 'string' && /(공개키|서명)/.test(error.message)) {
+            const inspectorHint = document.createElement('div');
+            inspectorHint.className = 'inspector-guide-hint';
+            inspectorHint.textContent = "🔍 인스펙터 안내: 아래 '🔍 서명 · 공개키 구조 인스펙터' 패널을 열어 서명(인코딩·바이트 길이·DER/Raw 형식) 및 공개키(알고리즘·곡선·좌표) 상세 구조를 확인해 보세요.";
+            errDiv.appendChild(inspectorHint);
+        }
         return errDiv;
     }
 
@@ -152,6 +159,17 @@
                 p.textContent = s.reason;
                 if (s.status === 'fail') p.className = 'failed';
                 contentDiv.appendChild(p);
+
+                if (
+                    s.status === 'fail' &&
+                    typeof s.reason === 'string' &&
+                    (s.reason.includes('현재 디코딩된 크기:') || s.reason.includes('서명 길이'))
+                ) {
+                    const inspectorHint = document.createElement('div');
+                    inspectorHint.className = 'inspector-guide-hint';
+                    inspectorHint.textContent = "🔍 인스펙터 안내: 아래 '🔍 서명 · 공개키 구조 인스펙터' 패널을 열어 서명의 인코딩, 바이트 길이, DER/Raw 형식을 확인해 보세요.";
+                    contentDiv.appendChild(inspectorHint);
+                }
             }
 
             li.appendChild(iconDiv);
