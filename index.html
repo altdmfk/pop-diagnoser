@@ -24,31 +24,31 @@
 
     <div class="top-action-bar">
       <div class="action-left-group">
-        <button id="btn-diagnose" class="btn-primary btn-diagnose-main">진단 시작</button>
-        <button id="btn-generate-test" class="btn-primary">서명값 생성</button>
+        <button type="button" id="btn-diagnose" class="btn-primary btn-diagnose-main">진단 시작</button>
+        <button type="button" id="btn-generate-test" class="btn-primary">서명값 생성</button>
       </div>
       <div class="demo-selector-group">
         <label for="demo-select" class="demo-select-label">예시 데이터</label>
         <select id="demo-select" class="demo-select">
           <option value="valid">✅ 정상 요청 (1~5단계 통과)</option>
-          <option value="query-sorted">❌ 4단계 실패: 쿼리 파라미터를 알파벳순으로 정렬해 서명함</option>
-          <option value="method-lowercase">❌ 4단계 실패: HTTP 메서드를 소문자(post)로 서명함</option>
-          <option value="sig-der">❌ 4단계 실패: 서명을 64바이트 Raw 대신 DER 형식으로 인코딩함</option>
-          <option value="digest-base64url">❌ 5단계 실패: 본문 해시를 16진수(Hex) 대신 Base64url로 인코딩함</option>
           <option value="timestamp-fail">❌ 2단계 실패: 타임스탬프 허용 오차(60초) 초과</option>
+          <option value="method-lowercase">❌ 4단계 실패: HTTP 메서드를 소문자(post)로 서명함</option>
+          <option value="query-sorted">❌ 4단계 실패: 쿼리 파라미터를 알파벳순으로 정렬해 서명함</option>
+          <option value="sig-der">❌ 4단계 실패: 서명을 64바이트 Raw 대신 DER 형식으로 인코딩함</option>
           <option value="combo-2">❌ 4단계 실패: 복합 실수 (소문자 메서드 + 쿼리 정렬)</option>
+          <option value="digest-base64url">❌ 5단계 실패: 본문 해시를 16진수(Hex) 대신 Base64url로 인코딩함</option>
         </select>
-        <button id="btn-clear-all" class="btn-demo">🗑️ 전체 지우기</button>
+        <button type="button" id="btn-clear-all" class="btn-demo">🗑️ 전체 지우기</button>
       </div>
     </div>
 
     <div class="main-content">
       <div class="input-section">
         <div class="tabs" role="tablist" aria-label="진단 입력 항목 탭">
-          <button id="tab-btn-http" class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-http" tabindex="0" data-target="tab-http">HTTP 요청</button>
-          <button id="tab-btn-headers" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-headers" tabindex="-1" data-target="tab-headers">서명 헤더</button>
-          <button id="tab-btn-config" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-config" tabindex="-1" data-target="tab-config">검증 설정</button>
-          <button id="tab-btn-tools" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-tools" tabindex="-1" data-target="tab-tools">cURL · 임시저장소</button>
+          <button type="button" id="tab-btn-http" class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-http" tabindex="0" data-target="tab-http">HTTP 요청</button>
+          <button type="button" id="tab-btn-headers" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-headers" tabindex="-1" data-target="tab-headers">서명 헤더</button>
+          <button type="button" id="tab-btn-config" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-config" tabindex="-1" data-target="tab-config">검증 설정</button>
+          <button type="button" id="tab-btn-tools" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-tools" tabindex="-1" data-target="tab-tools">cURL · 임시저장소</button>
         </div>
 
         <div id="tab-http" class="tab-pane active" role="tabpanel" aria-labelledby="tab-btn-http">
@@ -100,7 +100,10 @@
 
         <div id="tab-config" class="tab-pane" role="tabpanel" aria-labelledby="tab-btn-config">
           <div class="form-group">
-            <label for="req-pubkey">공개키 (PEM)</label>
+            <div class="label-with-action">
+              <label for="req-pubkey">공개키 (PEM)</label>
+              <button type="button" id="btn-fill-sample-pubkey" class="btn-small btn-inline-sample">🔑 예시 공개키 채우기</button>
+            </div>
             <div class="field-desc">클라이언트의 개인키와 짝을 이루는 ECDSA P-256 공개키(SPKI PEM 형식)입니다. 게이트웨이와 이 진단기는 개인키 없이 공개키만으로 서명이 맞는지 확인합니다.</div>
             <textarea id="req-pubkey" maxlength="2048" rows="6"></textarea>
           </div>
@@ -110,7 +113,7 @@
             <div class="field-desc">게이트웨이가 요청을 검사하는 기준 시각(초 단위)입니다. 이전에 캡처한 요청을 진단할 때는 요청의 Timestamp와 비슷한 값으로 맞춰 두면 만료 오류 없이 서명을 확인할 수 있습니다.</div>
             <div class="eval-time-group">
               <input type="number" id="eval-timestamp">
-              <button id="btn-now" class="btn-small">현재 시각</button>
+              <button type="button" id="btn-now" class="btn-small">현재 시각</button>
             </div>
           </div>
         </div>

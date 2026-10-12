@@ -3,6 +3,7 @@
     if (typeof module !== 'undefined' && module.exports) {
         deps = Object.assign(
             {},
+            require('../core/profiles/paper.js'),
             require('../core/curlParser.js'),
             require('./render.js'),
             require('./inspector.js')
@@ -16,14 +17,21 @@
     }
     root.PopUI = Object.assign(root.PopUI || {}, mod);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (deps) {
+    const HDRS = (deps && deps.PaperProfile && deps.PaperProfile.headers) || {
+        nonce: 'X-FIDO2-Nonce',
+        timestamp: 'X-FIDO2-Timestamp',
+        signature: 'X-FIDO2-Signature',
+        digest: 'X-Body-Digest'
+    };
+
     const FIELD_LABELS = {
         method: 'HTTP 메서드',
         urlStr: '요청 URL',
         bodyStr: '요청 본문(Body)',
-        nonce: 'X-FIDO2-Nonce',
-        timestampStr: 'X-FIDO2-Timestamp',
-        signature: 'X-FIDO2-Signature',
-        reqDigest: 'X-Body-Digest'
+        nonce: HDRS.nonce,
+        timestampStr: HDRS.timestamp,
+        signature: HDRS.signature,
+        reqDigest: HDRS.digest
     };
 
     const TARGET_INPUT_MAP = [
@@ -35,6 +43,12 @@
         { key: 'signature', id: 'req-signature' },
         { key: 'reqDigest', id: 'req-digest' }
     ];
+
+    function getFixturesObject() {
+        if (typeof globalThis !== 'undefined' && globalThis.FIXTURES) return globalThis.FIXTURES;
+        if (typeof window !== 'undefined' && window.FIXTURES) return window.FIXTURES;
+        return null;
+    }
 
     function formatFieldList(keys) {
         if (!keys || keys.length === 0) return '없음';
@@ -74,7 +88,7 @@
 
             const pubkeyNotice = document.createElement('div');
             pubkeyNotice.className = 'import-report-line import-line-info';
-            pubkeyNotice.textContent = PUBKEY_UNCHANGED_NOTICE;
+            pubkeyNotice.textContent = PUBKEY_CLEARED_NOTICE;
             box.appendChild(pubkeyNotice);
         }
 
@@ -83,7 +97,7 @@
             warnSection.className = 'import-report-subbox import-subbox-warn';
             parseResult.warnings.forEach((w, idx) => {
                 if (idx > 0) warnSection.appendChild(document.createElement('br'));
-                const msg = typeof w === 'string' ? w : `[${w.code}] ${w.message}`;
+                const msg = typeof w === 'string' ? w : (w && w.message ? w.message : String(w));
                 warnSection.appendChild(document.createTextNode(`⚠️ ${msg}`));
             });
             box.appendChild(warnSection);
@@ -94,7 +108,7 @@
             unsupSection.className = 'import-report-subbox import-subbox-error';
             parseResult.unsupported.forEach((u, idx) => {
                 if (idx > 0) unsupSection.appendChild(document.createElement('br'));
-                const msg = typeof u === 'string' ? u : `[${u.code}] ${u.message}`;
+                const msg = typeof u === 'string' ? u : (u && u.message ? u.message : String(u));
                 unsupSection.appendChild(document.createTextNode(`🚫 ${msg}`));
             });
             box.appendChild(unsupSection);
@@ -103,15 +117,16 @@
         container.appendChild(box);
     }
 
-    const PUBKEY_UNCHANGED_NOTICE = '• 안내: 공개키(Public Key)와 평가 기준 시각은 cURL/HTTP 요청에 포함되지 않으므로 변경하지 않았습니다. (공개키는 직접 입력 필요)';
+    const PUBKEY_CLEARED_NOTICE = '• 안내: 공개키(Public Key)는 cURL/HTTP 요청에 포함되지 않으므로 초기화되었습니다. [예시 공개키 채우기] 버튼을 누르거나 직접 공개키(PEM)를 입력해 주세요.';
 
     function hasExistingRequestInput() {
         if (typeof document === 'undefined') return false;
-        const checkIds = ['req-url', 'req-body', 'req-nonce', 'req-timestamp', 'req-signature', 'req-digest'];
-        return checkIds.some(id => {
-            const el = document.getElementById(id);
-            return el && el.value.trim().length > 0;
-        });
+        return TARGET_INPUT_MAP
+            .filter(item => item.key !== 'method')
+            .some(item => {
+                const el = document.getElementById(item.id);
+                return el && el.value.trim().length > 0;
+            });
     }
 
     function applyParsedInputsToDom(parseResult) {
@@ -122,20 +137,61 @@
                 el.value = parseResult.inputs[item.key] ?? '';
             }
         }
-        // Intentionally leave #req-pubkey and #eval-timestamp untouched
+        
+        // Clear public key as it is not part of cURL/HTTP request
+        const pubkeyEl = document.getElementById('req-pubkey');
+        if (pubkeyEl) {
+            pubkeyEl.value = '';
+        }
+
+        // Update eval timestamp to match request timestamp or current time
+        const evalTimeEl = document.getElementById('eval-timestamp');
+        if (evalTimeEl) {
+            if (parseResult.inputs.timestampStr && /^\d+$/.test(parseResult.inputs.timestampStr.trim())) {
+                evalTimeEl.value = parseResult.inputs.timestampStr.trim();
+            } else {
+                evalTimeEl.value = Math.floor(Date.now() / 1000);
+            }
+        }
+
         if (deps && typeof deps.resetInspector === 'function') {
             deps.resetInspector();
         }
+
         const applyNoticeEl = document.getElementById('curl-apply-notice');
         if (applyNoticeEl) {
-            applyNoticeEl.textContent = PUBKEY_UNCHANGED_NOTICE;
+            applyNoticeEl.textContent = '';
+            const msgSpan = document.createElement('span');
+            msgSpan.textContent = PUBKEY_CLEARED_NOTICE + ' ';
+            applyNoticeEl.appendChild(msgSpan);
+
+            const btnFill = document.createElement('button');
+            btnFill.type = 'button';
+            btnFill.className = 'btn-small btn-inline-sample';
+            btnFill.textContent = '🔑 예시 공개키 채우기';
+            btnFill.addEventListener('click', () => {
+                const pkEl = document.getElementById('req-pubkey');
+                const fix = getFixturesObject();
+                const fixPubkey = (fix && fix.public_key) || '';
+                if (pkEl && fixPubkey) {
+                    pkEl.value = fixPubkey;
+                    if (deps && typeof deps.showToast === 'function') {
+                        deps.showToast('🔑 예시 공개키가 입력칸에 채워졌습니다.');
+                    }
+                    if (deps && typeof deps.resetInspector === 'function') {
+                        deps.resetInspector();
+                    }
+                }
+            });
+            applyNoticeEl.appendChild(btnFill);
             applyNoticeEl.classList.remove('hidden');
         }
+
         const panel = document.getElementById('result-panel');
         if (panel && deps && typeof deps.setPlaceholder === 'function') {
             deps.setPlaceholder(panel, [
                 '📥 cURL / Raw HTTP 데이터가 입력칸에 반영되었습니다.',
-                PUBKEY_UNCHANGED_NOTICE,
+                PUBKEY_CLEARED_NOTICE,
                 "확인을 위해 '진단 시작' 버튼을 눌러주세요."
             ]);
         }
@@ -143,14 +199,12 @@
             deps.setOverheadVisible(false);
         }
         if (deps && typeof deps.showToast === 'function') {
-            deps.showToast(`📥 입력값 적용 완료 (${PUBKEY_UNCHANGED_NOTICE})`);
+            deps.showToast('📥 입력값 적용 완료 (공개키 초기화됨, 예시 공개키 버튼으로 채울 수 있음)');
         }
     }
 
     function findFixtureCase(name) {
-        const fix = (typeof globalThis !== 'undefined' && globalThis.FIXTURES)
-            ? globalThis.FIXTURES
-            : (typeof window !== 'undefined' && window.FIXTURES ? window.FIXTURES : null);
+        const fix = getFixturesObject();
         if (fix && Array.isArray(fix.cases)) {
             return fix.cases.find(c => c.name === name) || fix.cases[0] || null;
         }
@@ -165,10 +219,10 @@
                     'POST /v1/tx?c=3&a=1&b=2 HTTP/1.1',
                     'Host: api.example.com',
                     'Content-Type: application/json',
-                    'X-FIDO2-Nonce: n-sample',
-                    'X-FIDO2-Timestamp: 1700000000',
-                    'X-FIDO2-Signature: sig-sample',
-                    'X-Body-Digest: sha256=deadbeef',
+                    `${HDRS.nonce}: n-sample`,
+                    `${HDRS.timestamp}: 1700000000`,
+                    `${HDRS.signature}: sig-sample`,
+                    `${HDRS.digest}: sha256=deadbeef`,
                     '',
                     '{"amount": 1000, "to": "alice"}'
                 ].join('\n');
@@ -178,10 +232,10 @@
                 `${c.method} ${pathWithQuery} HTTP/1.1`,
                 `Host: ${c.host}`,
                 'Content-Type: application/json',
-                `X-FIDO2-Nonce: ${c.nonce}`,
-                `X-FIDO2-Timestamp: ${c.timestamp}`,
-                `X-FIDO2-Signature: ${c.signature}`,
-                `X-Body-Digest: ${c.digest}`,
+                `${HDRS.nonce}: ${c.nonce}`,
+                `${HDRS.timestamp}: ${c.timestamp}`,
+                `${HDRS.signature}: ${c.signature}`,
+                `${HDRS.digest}: ${c.digest}`,
                 '',
                 c.body
             ].join('\n');
@@ -190,7 +244,7 @@
         const caseName = sampleType === 'curl-der' ? 'sig-der' : 'valid';
         const c = findFixtureCase(caseName) || findFixtureCase('valid');
         if (!c) {
-            return "curl 'https://api.example.com/v1/tx?c=3&a=1&b=2' \\\n  -H 'X-FIDO2-Nonce: n1' \\\n  --data-raw '{\"amount\":1000}'";
+            return `curl 'https://api.example.com/v1/tx?c=3&a=1&b=2' \\\n  -H '${HDRS.nonce}: n1' \\\n  --data-raw '{"amount":1000}'`;
         }
         const url = c.query ? `https://${c.host}${c.path}?${c.query}` : `https://${c.host}${c.path}`;
         const escapedBody = String(c.body ?? '').replace(/'/g, "'\\''");
@@ -198,10 +252,10 @@
             `curl '${url}' \\`,
             `  -H 'Accept: application/json' \\`,
             `  -H 'Content-Type: application/json' \\`,
-            `  -H 'X-FIDO2-Nonce: ${c.nonce}' \\`,
-            `  -H 'X-FIDO2-Timestamp: ${c.timestamp}' \\`,
-            `  -H 'X-FIDO2-Signature: ${c.signature}' \\`,
-            `  -H 'X-Body-Digest: ${c.digest}' \\`,
+            `  -H '${HDRS.nonce}: ${c.nonce}' \\`,
+            `  -H '${HDRS.timestamp}: ${c.timestamp}' \\`,
+            `  -H '${HDRS.signature}: ${c.signature}' \\`,
+            `  -H '${HDRS.digest}: ${c.digest}' \\`,
             `  --data-raw '${escapedBody}' \\`,
             `  --compressed`
         ].join('\n');

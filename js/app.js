@@ -51,6 +51,18 @@
         });
         evalTimeInput.value = Math.floor(Date.now() / 1000);
 
+        const btnFillPubkey = document.getElementById('btn-fill-sample-pubkey');
+        if (btnFillPubkey) {
+            btnFillPubkey.addEventListener('click', () => {
+                const pkEl = document.getElementById('req-pubkey');
+                if (pkEl) {
+                    pkEl.value = (root.FIXTURES && root.FIXTURES.public_key) || DEFAULT_FALLBACK_PUBKEY;
+                    showToast('🔑 예시 공개키가 입력칸에 채워졌습니다.');
+                    if (typeof resetInspector === 'function') resetInspector();
+                }
+            });
+        }
+
         const loadDemo = (fixtureName, showFeedback = false) => {
             if (!root.FIXTURES || !root.FIXTURES.cases) {
                 showToast('⚠️ 데모 데이터를 불러오지 못했습니다. (fixtures.js 확인 필요)', true);
@@ -184,6 +196,7 @@
                 const result = await root.PopCore.diagnose(inputs);
                 if (spacedFields.length > 0) {
                     result.warnings.push({
+                        code: (root.PopCore.WARNING_CODES && root.PopCore.WARNING_CODES.WHITESPACE_STRIPPED) || 'WHITESPACE_STRIPPED',
                         message: `다음 입력값의 앞뒤나 중간에 잘못된 공백(띄어쓰기, 줄바꿈)이 포함되어 있어 제거 후 진단했습니다: ${spacedFields.join(', ')}`
                     });
                 }

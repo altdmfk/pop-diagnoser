@@ -10,6 +10,17 @@
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (renderMod) {
     const STORAGE_KEY = 'popDiagnoserSlots';
     const MAX_SLOTS = 5;
+    const SLOT_FIELD_MAP = [
+        { key: 'method', id: 'req-method' },
+        { key: 'urlStr', id: 'req-url' },
+        { key: 'bodyStr', id: 'req-body' },
+        { key: 'nonce', id: 'req-nonce' },
+        { key: 'timestampStr', id: 'req-timestamp' },
+        { key: 'signature', id: 'req-signature' },
+        { key: 'reqDigest', id: 'req-digest' },
+        { key: 'pubkeyPem', id: 'req-pubkey' },
+        { key: 'evalTime', id: 'eval-timestamp' }
+    ];
 
     function readMemorySlots() {
         try {
@@ -57,6 +68,7 @@
                 slotDiv.appendChild(titleSpan);
 
                 const btnSave = document.createElement('button');
+                btnSave.type = 'button';
                 btnSave.className = 'btn-small btn-slot-save';
                 btnSave.textContent = '💾 현재 입력 저장';
                 btnSave.addEventListener('click', () => saveToSlot(i));
@@ -64,12 +76,14 @@
 
                 if (slotData && typeof slotData === 'object') {
                     const btnLoad = document.createElement('button');
+                    btnLoad.type = 'button';
                     btnLoad.className = 'btn-small btn-slot-load';
                     btnLoad.textContent = '📂 불러오기';
                     btnLoad.addEventListener('click', () => loadFromSlot(i));
                     slotDiv.appendChild(btnLoad);
 
                     const btnDel = document.createElement('button');
+                    btnDel.type = 'button';
                     btnDel.className = 'btn-small btn-slot-delete';
                     btnDel.textContent = '🗑️ 삭제';
                     btnDel.addEventListener('click', () => deleteSlot(i));
@@ -81,17 +95,12 @@
 
         function saveToSlot(i) {
             const data = {
-                time: new Date().toLocaleTimeString('ko-KR', { hour12: false }),
-                method: document.getElementById('req-method').value,
-                urlStr: document.getElementById('req-url').value,
-                bodyStr: document.getElementById('req-body').value,
-                nonce: document.getElementById('req-nonce').value,
-                timestampStr: document.getElementById('req-timestamp').value,
-                signature: document.getElementById('req-signature').value,
-                reqDigest: document.getElementById('req-digest').value,
-                pubkeyPem: document.getElementById('req-pubkey').value,
-                evalTime: document.getElementById('eval-timestamp').value
+                time: new Date().toLocaleTimeString('ko-KR', { hour12: false })
             };
+            for (const item of SLOT_FIELD_MAP) {
+                const el = document.getElementById(item.id);
+                data[item.key] = el ? el.value : '';
+            }
             const readRes = readMemorySlots();
             const memory = readRes.data;
             memory[`slot_${i}`] = data;
@@ -112,15 +121,10 @@
             }
             const data = readRes.data[`slot_${i}`];
             if (data && typeof data === 'object') {
-                document.getElementById('req-method').value = data.method || '';
-                document.getElementById('req-url').value = data.urlStr || '';
-                document.getElementById('req-body').value = data.bodyStr || '';
-                document.getElementById('req-nonce').value = data.nonce || '';
-                document.getElementById('req-timestamp').value = data.timestampStr || '';
-                document.getElementById('req-signature').value = data.signature || '';
-                document.getElementById('req-digest').value = data.reqDigest || '';
-                document.getElementById('req-pubkey').value = data.pubkeyPem || '';
-                document.getElementById('eval-timestamp').value = data.evalTime || '';
+                for (const item of SLOT_FIELD_MAP) {
+                    const el = document.getElementById(item.id);
+                    if (el) el.value = data[item.key] || '';
+                }
                 showToast(`📂 슬롯 ${i}의 데이터를 성공적으로 불러왔습니다.`);
                 const panel = document.getElementById('result-panel');
                 setPlaceholder(panel, [

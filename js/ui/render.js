@@ -17,7 +17,7 @@
         t.textContent = msg;
         document.body.appendChild(t);
 
-        t.offsetHeight;
+        void t.offsetHeight;
         t.classList.add('toast-visible');
 
         setTimeout(() => {
@@ -89,6 +89,32 @@
         return wDiv;
     }
 
+    function appendErrorHintAndDetail(container, errObj) {
+        if (!errObj) return;
+        if (errObj.hint) {
+            container.appendChild(document.createElement('br'));
+            container.appendChild(document.createTextNode('💡 '));
+            const hintStrong = document.createElement('strong');
+            hintStrong.textContent = '힌트:';
+            container.appendChild(hintStrong);
+            container.appendChild(document.createTextNode(' ' + errObj.hint));
+            if (errObj.hintExample) {
+                container.appendChild(document.createTextNode(' '));
+                const exSpan = document.createElement('span');
+                exSpan.className = 'text-muted-span';
+                exSpan.textContent = errObj.hintExample;
+                container.appendChild(exSpan);
+            }
+        }
+
+        if (errObj.detail) {
+            const detailBox = document.createElement('div');
+            detailBox.className = 'error-detail-box';
+            detailBox.textContent = `📌 에러 상세:\n${errObj.detail}`;
+            container.appendChild(detailBox);
+        }
+    }
+
     function renderErrorBox(error) {
         const errDiv = document.createElement('div');
         errDiv.className = 'alert warning';
@@ -98,31 +124,9 @@
         errDiv.appendChild(document.createElement('br'));
 
         appendMultilineText(errDiv, error.message || '');
+        appendErrorHintAndDetail(errDiv, error);
 
-        if (error.hint) {
-            errDiv.appendChild(document.createElement('br'));
-            errDiv.appendChild(document.createTextNode('💡 '));
-            const hintStrong = document.createElement('strong');
-            hintStrong.textContent = '힌트:';
-            errDiv.appendChild(hintStrong);
-            errDiv.appendChild(document.createTextNode(' ' + error.hint));
-            if (error.hintExample) {
-                errDiv.appendChild(document.createTextNode(' '));
-                const exSpan = document.createElement('span');
-                exSpan.className = 'text-muted-span';
-                exSpan.textContent = error.hintExample;
-                errDiv.appendChild(exSpan);
-            }
-        }
-
-        if (error.detail) {
-            const detailBox = document.createElement('div');
-            detailBox.className = 'error-detail-box';
-            detailBox.textContent = `📌 에러 상세:\n${error.detail}`;
-            errDiv.appendChild(detailBox);
-        }
-
-        if (typeof error.message === 'string' && /(공개키|서명)/.test(error.message)) {
+        if (error.code === 'ERR_INVALID_PUBKEY' || error.code === 'ERR_INVALID_SIGNATURE_ENCODING') {
             const inspectorHint = document.createElement('div');
             inspectorHint.className = 'inspector-guide-hint';
             inspectorHint.textContent = "🔍 인스펙터 안내: 아래 '🔍 서명 · 공개키 구조 인스펙터' 패널을 열어 서명(인코딩·바이트 길이·DER/Raw 형식) 및 공개키(알고리즘·곡선·좌표) 상세 구조를 확인해 보세요.";
@@ -160,11 +164,7 @@
                 if (s.status === 'fail') p.className = 'failed';
                 contentDiv.appendChild(p);
 
-                if (
-                    s.status === 'fail' &&
-                    typeof s.reason === 'string' &&
-                    (s.reason.includes('현재 디코딩된 크기:') || s.reason.includes('서명 길이'))
-                ) {
+                if (s.status === 'fail' && s.code === 'STAGE4_INVALID_SIG_LENGTH') {
                     const inspectorHint = document.createElement('div');
                     inspectorHint.className = 'inspector-guide-hint';
                     inspectorHint.textContent = "🔍 인스펙터 안내: 아래 '🔍 서명 · 공개키 구조 인스펙터' 패널을 열어 서명의 인코딩, 바이트 길이, DER/Raw 형식을 확인해 보세요.";
@@ -237,11 +237,66 @@
             hBox.appendChild(ul);
         }
 
-        const pExp = document.createElement('p');
-        pExp.className = 'desc-label';
-        pExp.textContent = "문자열 차이점 (- 클라이언트가 서명한 잘못된 값 / + 게이트웨이가 요구하는 올바른 규격):";
-        hBox.appendChild(pExp);
-        hBox.appendChild(renderDiffView(result.expectedCanonical, set.canonical));
+        const isCanonicalSame = result.expectedCanonical === set.canonical;
+        if (isCanonicalSame) {
+            const matchBox = document.createElement('div');
+            matchBox.className = 'canonical-match-notice';
+            const strongNotice = document.createElement('strong');
+            strongNotice.textContent = '💡 서명 대상 문자열(Canonical String)은 게이트웨이 기준과 완전히 일치합니다.';
+            matchBox.appendChild(strongNotice);
+            matchBox.appendChild(document.createElement('br'));
+            matchBox.appendChild(document.createTextNode('문자열에는 오차가 없으며, 원인은 서명 데이터 자체의 인코딩 또는 포맷 차이입니다. 아래 해결 가이드를 확인해 주세요.'));
+            hBox.appendChild(matchBox);
+        } else {
+            const pExp = document.createElement('p');
+            pExp.className = 'desc-label';
+            pExp.textContent = "문자열 차이점 (- 클라이언트가 서명한 잘못된 값 / + 게이트웨이가 요구하는 올바른 규격):";
+            hBox.appendChild(pExp);
+            hBox.appendChild(renderDiffView(result.expectedCanonical, set.canonical));
+        }
+
+        const historyItems = (set.type === 'match' && set.item)
+            ? set.item.history
+            : (set.type === 'indistinguishable' && set.items && set.items[0])
+                ? set.items[0].history
+                : [];
+
+        const hasAnyGuide = historyItems.some(h => h.cause || h.solution);
+        if (hasAnyGuide) {
+            const guideBox = document.createElement('div');
+            guideBox.className = 'hypothesis-guide-box';
+            const guideTitle = document.createElement('strong');
+            guideTitle.className = 'guide-title';
+            guideTitle.textContent = '🛠️ 어떻게 수정해야 하나요? (해결 가이드)';
+            guideBox.appendChild(guideTitle);
+
+            const guideList = document.createElement('ul');
+            guideList.className = 'guide-list';
+
+            historyItems.forEach(h => {
+                const li = document.createElement('li');
+                const hTitle = document.createElement('div');
+                hTitle.className = 'guide-item-title';
+                hTitle.textContent = `${getTagLabel(h.tag)} ${h.label}`;
+                li.appendChild(hTitle);
+
+                if (h.cause) {
+                    const causeDiv = document.createElement('div');
+                    causeDiv.className = 'guide-item-desc';
+                    causeDiv.textContent = `• 원인: ${h.cause}`;
+                    li.appendChild(causeDiv);
+                }
+                if (h.solution) {
+                    const solDiv = document.createElement('div');
+                    solDiv.className = 'guide-item-solution';
+                    solDiv.textContent = `• 조치 방법: ${h.solution}`;
+                    li.appendChild(solDiv);
+                }
+                guideList.appendChild(li);
+            });
+            guideBox.appendChild(guideList);
+            hBox.appendChild(guideBox);
+        }
     }
 
     function renderNoMatchHypothesis(hBox, expectedCanonical) {
@@ -352,12 +407,7 @@
         strongTitle.textContent = '❌ 서명 생성 실패';
         errDiv.appendChild(strongTitle);
         appendMultilineText(errDiv, err && err.message ? err.message : String(err));
-        if (err && err.detail) {
-            const detailBox = document.createElement('div');
-            detailBox.className = 'error-detail-box';
-            detailBox.textContent = `📌 에러 상세:\n${err.detail}`;
-            errDiv.appendChild(detailBox);
-        }
+        appendErrorHintAndDetail(errDiv, err);
         panel.appendChild(errDiv);
     }
 
