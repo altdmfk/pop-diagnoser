@@ -2,12 +2,15 @@
     const renderMod = (typeof module !== 'undefined' && module.exports)
         ? require('./render.js')
         : root.PopUI;
-    const mod = factory(renderMod);
+    const inspectorMod = (typeof module !== 'undefined' && module.exports)
+        ? require('./inspector.js')
+        : root.PopUI;
+    const mod = factory(renderMod, inspectorMod);
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = mod;
     }
     root.PopUI = Object.assign(root.PopUI || {}, mod);
-})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (renderMod) {
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (renderMod, inspectorMod) {
     const STORAGE_KEY = 'popDiagnoserSlots';
     const MAX_SLOTS = 5;
     const SLOT_FIELD_MAP = [
@@ -22,9 +25,10 @@
         { key: 'evalTime', id: 'eval-timestamp' }
     ];
 
-    function readMemorySlots() {
+    function readMemorySlots(storage) {
+        const targetStorage = storage !== undefined ? storage : (typeof localStorage !== 'undefined' ? localStorage : null);
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
+            const raw = targetStorage.getItem(STORAGE_KEY);
             if (!raw) return { ok: true, data: {} };
             const parsed = JSON.parse(raw);
             if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -36,9 +40,10 @@
         }
     }
 
-    function writeMemorySlots(memory) {
+    function writeMemorySlots(memory, storage) {
+        const targetStorage = storage !== undefined ? storage : (typeof localStorage !== 'undefined' ? localStorage : null);
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(memory));
+            targetStorage.setItem(STORAGE_KEY, JSON.stringify(memory));
             return { ok: true };
         } catch (e) {
             return { ok: false, error: e };
@@ -99,7 +104,17 @@
             };
             for (const item of SLOT_FIELD_MAP) {
                 const el = document.getElementById(item.id);
-                data[item.key] = el ? el.value : '';
+                if (!el) {
+                    data[item.key] = '';
+                } else if (
+                    item.key === 'bodyStr' &&
+                    typeof el._rawBody === 'string' &&
+                    (el._rawBody === el.value || el._rawBody.replace(/\r\n/g, '\n') === el.value)
+                ) {
+                    data[item.key] = el._rawBody;
+                } else {
+                    data[item.key] = el.value;
+                }
             }
             const readRes = readMemorySlots();
             const memory = readRes.data;
@@ -123,7 +138,13 @@
             if (data && typeof data === 'object') {
                 for (const item of SLOT_FIELD_MAP) {
                     const el = document.getElementById(item.id);
-                    if (el) el.value = data[item.key] || '';
+                    if (el) {
+                        const val = data[item.key] || '';
+                        el.value = val;
+                        if (item.key === 'bodyStr') {
+                            el._rawBody = val;
+                        }
+                    }
                 }
                 showToast(`📂 슬롯 ${i}의 데이터를 성공적으로 불러왔습니다.`);
                 const panel = document.getElementById('result-panel');
@@ -132,8 +153,8 @@
                     "확인을 위해 '진단 시작' 버튼을 눌러주세요."
                 ]);
                 setOverheadVisible(false);
-                if (typeof renderMod.resetInspector === 'function') {
-                    renderMod.resetInspector();
+                if (inspectorMod && typeof inspectorMod.resetInspector === 'function') {
+                    inspectorMod.resetInspector();
                 }
             }
         }

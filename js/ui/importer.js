@@ -5,6 +5,7 @@
             {},
             require('../core/profiles/paper.js'),
             require('../core/curlParser.js'),
+            require('./samples.js'),
             require('./render.js'),
             require('./inspector.js')
         );
@@ -44,9 +45,11 @@
         { key: 'reqDigest', id: 'req-digest' }
     ];
 
-    function getFixturesObject() {
-        if (typeof globalThis !== 'undefined' && globalThis.FIXTURES) return globalThis.FIXTURES;
-        if (typeof window !== 'undefined' && window.FIXTURES) return window.FIXTURES;
+    function getSamplesObject() {
+        if (deps && deps.DEMO_SAMPLES) return deps.DEMO_SAMPLES;
+        if (typeof globalThis !== 'undefined' && globalThis.PopUI && globalThis.PopUI.DEMO_SAMPLES) {
+            return globalThis.PopUI.DEMO_SAMPLES;
+        }
         return null;
     }
 
@@ -90,6 +93,11 @@
             pubkeyNotice.className = 'import-report-line import-line-info';
             pubkeyNotice.textContent = PUBKEY_CLEARED_NOTICE;
             box.appendChild(pubkeyNotice);
+
+            const lfNotice = document.createElement('div');
+            lfNotice.className = 'import-report-line import-line-info';
+            lfNotice.textContent = TEXTAREA_LF_NOTICE;
+            box.appendChild(lfNotice);
         }
 
         if (parseResult.warnings && parseResult.warnings.length > 0) {
@@ -118,6 +126,25 @@
     }
 
     const PUBKEY_CLEARED_NOTICE = '• 안내: 공개키(Public Key)는 cURL/HTTP 요청에 포함되지 않으므로 초기화되었습니다. [예시 공개키 채우기] 버튼을 누르거나 직접 공개키(PEM)를 입력해 주세요.';
+    const TEXTAREA_LF_NOTICE = '• 참고: 브라우저 입력창(textarea)은 HTML 표준에 따라 직접 입력·붙여넣은 줄바꿈을 LF(\\n)로 정규화합니다. (cURL의 $\'...\\r\\n...\' 이스케이프 및 가져온 본문의 원본 줄바꿈은 보존되며, 줄바꿈 차이로 인한 해시 불일치는 5단계 newline-crlf 가설이 양방향으로 진단합니다.)';
+
+    function setRawTextareaValue(el, rawStr) {
+        if (!el) return;
+        const val = String(rawStr ?? '');
+        el.value = val;
+        el._rawBody = val;
+    }
+
+    function readRequestBody(el) {
+        if (!el) return '';
+        const domVal = String(el.value ?? '');
+        if (typeof el._rawBody === 'string') {
+            if (el._rawBody === domVal || el._rawBody.replace(/\r\n/g, '\n') === domVal) {
+                return el._rawBody;
+            }
+        }
+        return domVal;
+    }
 
     function hasExistingRequestInput() {
         if (typeof document === 'undefined') return false;
@@ -134,7 +161,12 @@
         for (const item of TARGET_INPUT_MAP) {
             const el = document.getElementById(item.id);
             if (el) {
-                el.value = parseResult.inputs[item.key] ?? '';
+                const val = parseResult.inputs[item.key] ?? '';
+                if (item.key === 'bodyStr') {
+                    setRawTextareaValue(el, val);
+                } else {
+                    el.value = val;
+                }
             }
         }
         
@@ -171,10 +203,10 @@
             btnFill.textContent = '🔑 예시 공개키 채우기';
             btnFill.addEventListener('click', () => {
                 const pkEl = document.getElementById('req-pubkey');
-                const fix = getFixturesObject();
-                const fixPubkey = (fix && fix.public_key) || '';
-                if (pkEl && fixPubkey) {
-                    pkEl.value = fixPubkey;
+                const samples = getSamplesObject();
+                const samplePubkey = (samples && samples.public_key) || '';
+                if (pkEl && samplePubkey) {
+                    pkEl.value = samplePubkey;
                     if (deps && typeof deps.showToast === 'function') {
                         deps.showToast('🔑 예시 공개키가 입력칸에 채워졌습니다.');
                     }
@@ -184,6 +216,12 @@
                 }
             });
             applyNoticeEl.appendChild(btnFill);
+
+            applyNoticeEl.appendChild(document.createElement('br'));
+            const lfSpan = document.createElement('span');
+            lfSpan.textContent = TEXTAREA_LF_NOTICE;
+            applyNoticeEl.appendChild(lfSpan);
+
             applyNoticeEl.classList.remove('hidden');
         }
 
@@ -192,6 +230,7 @@
             deps.setPlaceholder(panel, [
                 '📥 cURL / Raw HTTP 데이터가 입력칸에 반영되었습니다.',
                 PUBKEY_CLEARED_NOTICE,
+                TEXTAREA_LF_NOTICE,
                 "확인을 위해 '진단 시작' 버튼을 눌러주세요."
             ]);
         }
@@ -204,9 +243,9 @@
     }
 
     function findFixtureCase(name) {
-        const fix = getFixturesObject();
-        if (fix && Array.isArray(fix.cases)) {
-            return fix.cases.find(c => c.name === name) || fix.cases[0] || null;
+        const samples = getSamplesObject();
+        if (samples && Array.isArray(samples.cases)) {
+            return samples.cases.find(c => c.name === name) || samples.cases[0] || null;
         }
         return null;
     }
@@ -291,11 +330,22 @@
         const fillSample = (type) => {
             hideConfirmBar();
             hideApplyNotice();
-            inputEl.value = buildImportSample(type);
+            setRawTextareaValue(inputEl, buildImportSample(type));
             if (typeof inputEl.focus === 'function') {
                 inputEl.focus();
             }
         };
+
+        if (typeof inputEl.addEventListener === 'function') {
+            inputEl.addEventListener('paste', (e) => {
+                if (e && e.clipboardData && typeof e.clipboardData.getData === 'function') {
+                    const pasted = e.clipboardData.getData('text/plain');
+                    if (typeof pasted === 'string' && pasted.includes('\r\n')) {
+                        inputEl._rawBody = pasted;
+                    }
+                }
+            });
+        }
 
         if (btnSampleValid) btnSampleValid.addEventListener('click', () => fillSample('curl-valid'));
         if (btnSampleDer) btnSampleDer.addEventListener('click', () => fillSample('curl-der'));
@@ -314,7 +364,7 @@
             if (typeof parseFn !== 'function') return;
 
             hideApplyNotice();
-            const res = parseFn(inputEl.value);
+            const res = parseFn(readRequestBody(inputEl));
             if (!res.ok) {
                 hideConfirmBar();
                 if (statusBanner) {
@@ -347,6 +397,9 @@
     }
 
     return {
+        TEXTAREA_LF_NOTICE,
+        setRawTextareaValue,
+        readRequestBody,
         buildImportSample,
         renderImportStatus,
         applyParsedInputsToDom,

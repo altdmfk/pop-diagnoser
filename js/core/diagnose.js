@@ -10,32 +10,40 @@
             require('./curlParser.js'),
             require('./canonical.js'),
             require('./hypotheses.js'),
-            require('../ui/jsonError.js')
+            require('./jsonError.js')
         );
     } else {
-        deps = Object.assign({}, root.PopCore, root.PopUI);
+        deps = Object.assign({}, root.PopCore);
     }
     const mod = factory(deps);
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = mod;
     }
-    root.PopCore = Object.assign(root.PopCore || {}, mod);
+    root.PopCore = mod;
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (deps) {
     const {
         STAGE_IDS = { HEADERS: 1, TIMESTAMP: 2, NONCE: 3, SIGNATURE: 4, DIGEST: 5 },
         PaperProfile,
+        bytesToBinaryString,
         base64UrlDecode,
         base64StandardDecode,
         base64UrlEncodeBytes,
         hashString,
         bytesToHex,
+        PEM_PUBLIC_KEY_HEADER,
+        PEM_PUBLIC_KEY_FOOTER,
         importPublicKey,
         derToRaw,
         verifySig,
         generateKeyPairAndSign,
+        detectAndDecodeSignature,
+        inspectSignature,
+        inspectPublicKey,
+        parseCurl,
+        parseRawHttp,
         buildString,
         HYPOTHESES,
-        getJsonErrorSnippet,
+        extractJsonErrorLocation,
         detectJsonErrorHint,
         JSON_HINT_CODES
     } = deps;
@@ -62,23 +70,53 @@
 
     const WARNING_CODES = {
         METHOD_UPPERCASED: 'METHOD_UPPERCASED',
-        WHITESPACE_STRIPPED: 'WHITESPACE_STRIPPED'
+        WHITESPACE_STRIPPED: 'WHITESPACE_STRIPPED',
+        INVALID_JSON: ERROR_CODES.INVALID_JSON
     };
 
-    function validateJsonBody(bodyStr, errorMessage) {
-        if (!bodyStr || !bodyStr.trim()) return null;
+    function looksLikeJson(bodyStr, contentType) {
+        if (!bodyStr || typeof bodyStr !== 'string') return false;
+        const trimmed = bodyStr.trim();
+        if (!trimmed) return false;
+        if (contentType && typeof contentType === 'string' && /application\/([a-z0-9.+-]+\+)?json/i.test(contentType)) {
+            return true;
+        }
+        const first = trimmed[0];
+        const last = trimmed[trimmed.length - 1];
+        return first === '{' || first === '[' || last === '}' || last === ']';
+    }
+
+    function validateJsonBody(bodyStr, errorMessage, contentType) {
+        if (!looksLikeJson(bodyStr, contentType)) return null;
         try {
             JSON.parse(bodyStr);
             return null;
         } catch (e) {
-            const hintInfo = typeof detectJsonErrorHint === 'function' ? detectJsonErrorHint(e, bodyStr) : null;
+            const defaultMsg = '요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\n중괄호({, }), 쉼표(,), 따옴표(")가 빠졌거나 오타가 있는지 확인해 주세요.';
+            const baseMsg = errorMessage || defaultMsg;
+            const loc = typeof extractJsonErrorLocation === 'function'
+                ? extractJsonErrorLocation(e, bodyStr)
+                : {
+                    message: e && e.message ? e.message : String(e),
+                    cleanMessage: e && e.message ? e.message : String(e),
+                    line: null,
+                    column: null,
+                    problemLine: null
+                };
+            const detail = (loc.line !== null && loc.column !== null && loc.problemLine !== null)
+                ? `${loc.cleanMessage}\n\n[문제 발생 위치: ${loc.line}번째 줄, ${loc.column}번째 칸]\n${loc.problemLine}`
+                : loc.message;
             return {
-                code: ERROR_CODES.INVALID_JSON,
-                hintCode: hintInfo ? hintInfo.hintCode : undefined,
-                message: errorMessage,
-                detail: getJsonErrorSnippet(e, bodyStr),
-                hint: hintInfo ? hintInfo.hint : undefined,
-                hintExample: hintInfo ? hintInfo.hintExample : undefined
+                code: WARNING_CODES.INVALID_JSON,
+                hintCode: loc.hintCode,
+                message: baseMsg,
+                detail,
+                line: loc.line,
+                column: loc.column,
+                problemLine: loc.problemLine,
+                cleanMessage: loc.cleanMessage,
+                hint: loc.hint,
+                hintExample: loc.hintExample
             };
         }
     }
@@ -94,6 +132,7 @@
             signature: String(safe.signature ?? ""),
             pubkeyPem: String(safe.pubkeyPem ?? ""),
             reqDigest: String(safe.reqDigest ?? ""),
+            contentType: String(safe.contentType ?? ""),
             evalTime: safe.evalTime
         };
     }
@@ -137,15 +176,61 @@
     }
 
     function decodeSignatureWithFallback(signature, minByteLength) {
-        try {
-            return { signatureBytes: base64UrlDecode(signature), stdBase64Signature: null };
-        } catch (e) {
-            const candidate = base64StandardDecode(signature);
-            if (candidate.byteLength >= minByteLength) {
-                return { signatureBytes: new ArrayBuffer(0), stdBase64Signature: candidate };
-            }
-            throw new Error("Signature too short");
+        const decoded = detectAndDecodeSignature(signature);
+        if (decoded.error || !decoded.bytes) {
+            const err = new Error(decoded.error ? decoded.error.message : "Invalid signature encoding");
+            err.code = decoded.error ? decoded.error.code : 'INVALID_ENCODING';
+            err.encoding = decoded.encoding || 'unknown';
+            throw err;
         }
+        const byteBuf = decoded.bytes.buffer.slice(
+            decoded.bytes.byteOffset,
+            decoded.bytes.byteOffset + decoded.bytes.byteLength
+        );
+        if (decoded.encoding === 'base64url') {
+            return {
+                encoding: 'base64url',
+                signatureBytes: byteBuf,
+                stdBase64Signature: null
+            };
+        }
+        if (decoded.encoding === 'base64(standard)') {
+            if (byteBuf.byteLength >= minByteLength) {
+                return {
+                    encoding: 'base64(standard)',
+                    signatureBytes: new ArrayBuffer(0),
+                    stdBase64Signature: byteBuf
+                };
+            }
+            const err = new Error("Signature too short");
+            err.code = 'INVALID_BYTE_LENGTH';
+            err.encoding = 'base64(standard)';
+            err.byteLength = byteBuf.byteLength;
+            throw err;
+        }
+        const err = new Error(
+            `서명이 Base64url이 아닌 16진수(Hex, ${byteBuf.byteLength}바이트) 형식으로 인코딩되어 있습니다. Base64url 형식으로 변환해 주세요.`
+        );
+        err.code = 'HEX_SIGNATURE_REJECTED';
+        err.encoding = decoded.encoding;
+        err.byteLength = byteBuf.byteLength;
+        throw err;
+    }
+
+    function extractEffectiveHost(url, rawUrlStr) {
+        if (url.protocol === 'https:' && !url.port) {
+            const match = String(rawUrlStr || '').trim().match(/^https:\/\/([^/?#]*)/i);
+            if (match) {
+                const authority = match[1];
+                const rawHostPort = authority.includes('@')
+                    ? authority.slice(authority.lastIndexOf('@') + 1)
+                    : authority;
+                if (rawHostPort.endsWith(':443')) {
+                    return `${url.hostname}:443`;
+                }
+            }
+        }
+        return url.host;
     }
 
     async function parseAndValidateInputs(norm, profile) {
@@ -167,18 +252,38 @@
             };
         }
 
+        const effectiveHost = extractEffectiveHost(url, norm.urlStr);
+
         let cryptoKey;
         try {
             cryptoKey = await importPublicKey(norm.pubkeyPem);
         } catch (e) {
-            return { error: { code: ERROR_CODES.INVALID_PUBKEY, message: e.message, detail: e.message } };
+            return {
+                error: {
+                    code: ERROR_CODES.INVALID_PUBKEY,
+                    causeCode: e.code || null,
+                    message: e.message,
+                    detail: e.message
+                }
+            };
         }
 
         let sigDecoded;
         try {
             sigDecoded = decodeSignatureWithFallback(norm.signature, profile.signatureByteLength);
         } catch (e) {
-            return { error: { code: ERROR_CODES.INVALID_SIGNATURE_ENCODING, message: "서명(Base64) 디코딩에 실패했습니다. 유효한 문자열인지 확인하세요.", detail: e.message } };
+            return {
+                error: {
+                    code: ERROR_CODES.INVALID_SIGNATURE_ENCODING,
+                    causeCode: e.code || null,
+                    encoding: e.encoding || 'unknown',
+                    byteLength: typeof e.byteLength === 'number' ? e.byteLength : null,
+                    message: e.encoding === 'hex'
+                        ? e.message
+                        : "서명(Base64) 디코딩에 실패했습니다. 유효한 문자열인지 확인하세요.",
+                    detail: e.message
+                }
+            };
         }
 
         const cleanTimestampStr = norm.timestampStr.trim();
@@ -196,6 +301,7 @@
 
         return {
             url,
+            host: effectiveHost,
             cryptoKey,
             signatureBytes: sigDecoded.signatureBytes,
             stdBase64Signature: sigDecoded.stdBase64Signature,
@@ -248,7 +354,7 @@
         const query = parsed.url.search.substring(1);
         return {
             method: normalizedMethod,
-            host: parsed.url.host,
+            host: parsed.host || parsed.url.host,
             path: parsed.url.pathname,
             query,
             rawBody: norm.bodyStr,
@@ -307,31 +413,83 @@
         };
     }
 
-    async function searchStage5Hypotheses(baseReq, bodyHashHex, cleanReqDigest, profile) {
-        const stage5Id = profile.stages[STAGE_IDS.DIGEST].id;
-        const stage5Hypotheses = HYPOTHESES.filter(h => h.stage === stage5Id || h.stage === 'both');
-        const stage5BaseReq = { ...baseReq, bodyHash: bodyHashHex, targetDigest: cleanReqDigest };
-        const stage5Matches = [];
+    const STAGE4_HYPOTHESIS_PRIORITY = {
+        'sig-base64url': 1,
+        'sig-der': 2
+    };
 
-        for (let h of stage5Hypotheses) {
-            const nextReq = await h.apply(stage5BaseReq, stage5Id);
-            if (nextReq.bodyHash === cleanReqDigest && nextReq.bodyHash !== bodyHashHex) {
-                stage5Matches.push({
-                    idStr: h.id,
-                    history: [{ id: h.id, label: h.label, tag: h.tag, cause: h.cause, solution: h.solution }],
-                    canonical: buildString({ ...baseReq, bodyHash: cleanReqDigest }, profile),
-                    signatureHex: bytesToHex(baseReq.parsedSignature)
-                });
+    const STAGE5_HYPOTHESIS_PRIORITY = {
+        'body-reserialized-nospace': 1,
+        'newline-crlf': 2,
+        'newline-trailing': 3,
+        'body-bom-added': 4,
+        'digest-base64url': 5,
+        'digest-hex': 6
+    };
+
+    async function applyStage5Hypothesis(req, h, stage5Id) {
+        return await h.apply(req, stage5Id);
+    }
+
+    async function searchStage5Hypotheses(baseReq, bodyHashHex, cleanReqDigest, profile) {
+        if (!cleanReqDigest) {
+            return { type: 'no-match', reduced: false };
+        }
+        const stage5Id = profile.stages[STAGE_IDS.DIGEST].id;
+        const stage5Hypotheses = HYPOTHESES
+            .filter(h => h.stage === stage5Id || h.stage === 'both')
+            .slice()
+            .sort((a, b) => (STAGE5_HYPOTHESIS_PRIORITY[a.id] || 10) - (STAGE5_HYPOTHESIS_PRIORITY[b.id] || 10));
+
+        const stage5BaseReq = { ...baseReq, bodyHash: bodyHashHex, targetDigest: cleanReqDigest };
+        const queue = [{ req: stage5BaseReq, history: [], startIdx: 0 }];
+        const stage5Matches = [];
+        const stateCache = new Map();
+        stateCache.set(`${stage5BaseReq.rawBody}|${bodyHashHex}`, { depth: 0, matched: false });
+
+        while (queue.length > 0) {
+            const current = queue.shift();
+            if (current.history.length >= profile.maxComboDepth) continue;
+
+            for (let i = current.startIdx; i < stage5Hypotheses.length; i++) {
+                const h = stage5Hypotheses[i];
+                const nextReq = await applyStage5Hypothesis(current.req, h, stage5Id);
+                if (nextReq.bodyHash === current.req.bodyHash && nextReq.rawBody === current.req.rawBody) {
+                    continue;
+                }
+
+                const nextDepth = current.history.length + 1;
+                const stateKey = `${nextReq.rawBody}|${nextReq.bodyHash}`;
+                const cached = stateCache.get(stateKey);
+                if (cached && cached.depth < nextDepth) {
+                    continue;
+                }
+
+                const nextHistory = [
+                    ...current.history,
+                    { id: h.id, label: h.label, tag: h.tag, cause: h.cause, solution: h.solution }
+                ];
+                const isMatch = nextReq.bodyHash === cleanReqDigest && nextReq.bodyHash !== bodyHashHex;
+                if (!cached) {
+                    stateCache.set(stateKey, { depth: nextDepth, matched: isMatch });
+                }
+
+                if (isMatch) {
+                    stage5Matches.push({
+                        history: nextHistory,
+                        canonical: buildString({ ...baseReq, bodyHash: cleanReqDigest }, profile),
+                        signatureHex: bytesToHex(baseReq.parsedSignature)
+                    });
+                } else if (nextDepth < profile.maxComboDepth) {
+                    queue.push({ req: nextReq, history: nextHistory, startIdx: i + 1 });
+                }
             }
         }
 
         if (stage5Matches.length === 0) {
             return { type: 'no-match', reduced: false };
         }
-        const sets = stage5Matches.length > 1
-            ? [{ type: 'indistinguishable', items: stage5Matches, canonical: stage5Matches[0].canonical }]
-            : [{ type: 'match', item: stage5Matches[0], canonical: stage5Matches[0].canonical }];
-        return { type: 'found', sets, reduced: false };
+        return { type: 'found', sets: groupAndMinimizeMatches(stage5Matches), reduced: false };
     }
 
     function filterMinimalMatches(groupMatches) {
@@ -368,7 +526,7 @@
             if (minimal.length > 1) {
                 finalSets.push({ type: 'indistinguishable', items: minimal, canonical: minimal[0].canonical });
             } else if (minimal.length === 1) {
-                finalSets.push({ type: 'match', item: minimal[0], canonical: minimal[0].canonical });
+                finalSets.push({ type: 'match', item: minimal[0], items: minimal, canonical: minimal[0].canonical });
             }
         }
         return finalSets;
@@ -376,47 +534,73 @@
 
     async function searchStage4Hypotheses(baseReq, cryptoKey, profile) {
         const stage4Id = profile.stages[STAGE_IDS.SIGNATURE].id;
-        const stage4Hypotheses = HYPOTHESES.filter(h => h.stage === stage4Id || h.stage === 'both');
-        const queue = [{ req: baseReq, history: [], ids: new Set() }];
+        const stage4Hypotheses = HYPOTHESES
+            .filter(h => h.stage === stage4Id || h.stage === 'both')
+            .slice()
+            .sort((a, b) => (STAGE4_HYPOTHESIS_PRIORITY[a.id] || 10) - (STAGE4_HYPOTHESIS_PRIORITY[b.id] || 10));
+
+        const rootCanonical = buildString(baseReq, profile);
+        const rootSigHex = bytesToHex(baseReq.parsedSignature);
+        const stateCache = new Map();
+        stateCache.set(`${rootCanonical}|${rootSigHex}`, { depth: 0, verified: false });
+
+        const queue = [{ req: baseReq, history: [], startIdx: 0 }];
         const matches = [];
-        let explored = 0;
+        let verifyCount = 0;
         let reduced = false;
 
+        outerLoop:
         while (queue.length > 0) {
-            if (explored >= profile.maxSearchNodes) {
-                reduced = true;
-                break;
-            }
             const current = queue.shift();
-            explored++;
+            if (current.history.length >= profile.maxComboDepth) continue;
+
             const canonical = buildString(current.req, profile);
+            const currentSigHex = bytesToHex(current.req.parsedSignature);
 
-            for (let h of stage4Hypotheses) {
-                if (current.ids.has(h.id)) continue;
-                if (current.history.length >= profile.maxComboDepth && !reduced) continue;
-
+            for (let i = current.startIdx; i < stage4Hypotheses.length; i++) {
+                const h = stage4Hypotheses[i];
                 const nextReq = await h.apply(current.req, stage4Id);
                 const nextCanonical = buildString(nextReq, profile);
-                if (nextCanonical === canonical && bytesToHex(nextReq.parsedSignature) === bytesToHex(current.req.parsedSignature)) {
+                const nextSigHex = bytesToHex(nextReq.parsedSignature);
+                if (nextCanonical === canonical && nextSigHex === currentSigHex) {
                     continue;
                 }
 
-                const nextHistory = [...current.history, { id: h.id, label: h.label, tag: h.tag, cause: h.cause, solution: h.solution }];
-                const nextIds = new Set(current.ids);
-                nextIds.add(h.id);
+                const nextDepth = current.history.length + 1;
+                const stateKey = `${nextCanonical}|${nextSigHex}`;
+                const cached = stateCache.get(stateKey);
+                if (cached && cached.depth < nextDepth) {
+                    continue;
+                }
 
-                const isSigValid = nextReq.parsedSignature.byteLength === profile.signatureByteLength
-                    ? await verifySig(cryptoKey, nextReq.parsedSignature, nextCanonical)
-                    : false;
+                const nextHistory = [
+                    ...current.history,
+                    { id: h.id, label: h.label, tag: h.tag, cause: h.cause, solution: h.solution }
+                ];
+
+                let isSigValid = false;
+                if (cached) {
+                    isSigValid = cached.verified;
+                } else {
+                    if (nextReq.parsedSignature.byteLength === profile.signatureByteLength) {
+                        if (verifyCount >= profile.maxSearchNodes) {
+                            reduced = true;
+                            break outerLoop;
+                        }
+                        verifyCount++;
+                        isSigValid = await verifySig(cryptoKey, nextReq.parsedSignature, nextCanonical);
+                    }
+                    stateCache.set(stateKey, { depth: nextDepth, verified: isSigValid });
+                }
 
                 if (isSigValid) {
                     matches.push({
                         history: nextHistory,
                         canonical: nextCanonical,
-                        signatureHex: bytesToHex(nextReq.parsedSignature)
+                        signatureHex: nextSigHex
                     });
-                } else if (nextHistory.length < profile.maxComboDepth) {
-                    queue.push({ req: nextReq, history: nextHistory, ids: nextIds });
+                } else if (nextDepth < profile.maxComboDepth) {
+                    queue.push({ req: nextReq, history: nextHistory, startIdx: i + 1 });
                 }
             }
         }
@@ -425,6 +609,32 @@
             return { type: 'no-match', reduced };
         }
         return { type: 'found', sets: groupAndMinimizeMatches(matches), reduced };
+    }
+
+    function mergeStage4AndStage5Sets(s4Sets, s5Sets) {
+        const combinedMatches = [];
+        for (const s4Set of s4Sets) {
+            const s4Items = s4Set.type === 'indistinguishable' ? s4Set.items : [s4Set.item];
+            for (const s5Set of s5Sets) {
+                const s5Items = s5Set.type === 'indistinguishable' ? s5Set.items : [s5Set.item];
+                for (const it4 of s4Items) {
+                    for (const it5 of s5Items) {
+                        const mergedHistory = [...it4.history];
+                        for (const h5 of it5.history) {
+                            if (!mergedHistory.some(existing => existing.id === h5.id)) {
+                                mergedHistory.push(h5);
+                            }
+                        }
+                        combinedMatches.push({
+                            history: mergedHistory,
+                            canonical: it4.canonical,
+                            signatureHex: it4.signatureHex
+                        });
+                    }
+                }
+            }
+        }
+        return groupAndMinimizeMatches(combinedMatches);
     }
 
     async function diagnose(inputs, profile = PaperProfile) {
@@ -436,27 +646,47 @@
             error: null,
             firstFailedStage: null,
             expectedCanonical: "",
+            stage5ExpectedCanonical: "",
+            stage4HypothesisResult: null,
+            stage5HypothesisResult: null,
             hypothesisResult: null
         };
 
-        const jsonErr = validateJsonBody(
-            norm.bodyStr,
-            '요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\n중괄호({, }), 쉼표(,), 따옴표(")가 빠졌거나 오타가 있는지 확인해 주세요.'
-        );
-        if (jsonErr) {
-            result.error = jsonErr;
-            return result;
-        }
-
         const s1 = evaluateStage1Headers(norm, activeProfile);
         result.stages.push(s1.stage);
+
+        const jsonWarn = validateJsonBody(
+            norm.bodyStr,
+            '요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\n중괄호({, }), 쉼표(,), 따옴표(")가 빠졌거나 오타가 있는지 확인해 주세요.',
+            norm.contentType
+        );
+        const appendJsonWarning = (digestFailed) => {
+            if (!jsonWarn) return;
+            const msgParts = [jsonWarn.message];
+            if (jsonWarn.hint) {
+                msgParts.push(`힌트: ${jsonWarn.hint}${jsonWarn.hintExample ? ' ' + jsonWarn.hintExample : ''}`);
+            }
+            if (digestFailed) {
+                msgParts.push('5단계 본문 다이제스트 불일치가 이 JSON 문법 오류(중괄호·쉼표·따옴표 누락 등)로 인해 발생했을 수 있습니다.');
+            }
+            if (jsonWarn.detail) {
+                msgParts.push(jsonWarn.detail);
+            }
+            result.warnings.unshift({
+                ...jsonWarn,
+                message: msgParts.join('\n')
+            });
+        };
+
         if (!s1.passed) {
+            appendJsonWarning(false);
             result.firstFailedStage = activeProfile.stages[STAGE_IDS.HEADERS].id;
             return result;
         }
 
         const parsed = await parseAndValidateInputs(norm, activeProfile);
         if (parsed.error) {
+            appendJsonWarning(false);
             result.error = parsed.error;
             return result;
         }
@@ -473,9 +703,12 @@
         if (!s3.passed && !result.firstFailedStage) result.firstFailedStage = activeProfile.stages[STAGE_IDS.NONCE].id;
 
         const baseReq = buildBaseRequest(norm, parsed, cleanReqDigest, activeProfile, result.warnings);
-        result.expectedCanonical = buildString(baseReq, activeProfile);
+        const stage4ExpectedCanonical = buildString(baseReq, activeProfile);
+        const stage5ExpectedCanonical = buildString({ ...baseReq, bodyHash: bodyHashHex }, activeProfile);
+        result.expectedCanonical = stage4ExpectedCanonical;
+        result.stage5ExpectedCanonical = stage5ExpectedCanonical;
 
-        const s4 = await evaluateStage4Signature(parsed.cryptoKey, baseReq, result.expectedCanonical, norm.reqDigest, activeProfile);
+        const s4 = await evaluateStage4Signature(parsed.cryptoKey, baseReq, stage4ExpectedCanonical, norm.reqDigest, activeProfile);
         result.stages.push(s4.stage);
         if ((!norm.reqDigest || !s4.passed) && !result.firstFailedStage) {
             result.firstFailedStage = activeProfile.stages[STAGE_IDS.SIGNATURE].id;
@@ -487,33 +720,97 @@
             result.firstFailedStage = activeProfile.stages[STAGE_IDS.DIGEST].id;
         }
 
+        appendJsonWarning(!s5.passed);
+
         if (s4.passed && s5.passed) {
+            result.stage4HypothesisResult = { type: 'skipped' };
+            result.stage5HypothesisResult = { type: 'skipped' };
             result.hypothesisResult = { type: 'skipped' };
             return result;
         }
 
         if (s4.passed && !s5.passed) {
-            result.expectedCanonical = buildString({ ...baseReq, bodyHash: bodyHashHex }, activeProfile);
-            result.hypothesisResult = await searchStage5Hypotheses(baseReq, bodyHashHex, cleanReqDigest, activeProfile);
+            result.expectedCanonical = stage5ExpectedCanonical;
+            const s5Res = await searchStage5Hypotheses(baseReq, bodyHashHex, cleanReqDigest, activeProfile);
+            result.stage4HypothesisResult = { type: 'skipped' };
+            result.stage5HypothesisResult = { stage: 5, expectedCanonical: stage5ExpectedCanonical, ...s5Res };
+            result.hypothesisResult = s5Res;
             return result;
         }
 
-        result.hypothesisResult = await searchStage4Hypotheses(baseReq, parsed.cryptoKey, activeProfile);
+        if (!s4.passed && s5.passed) {
+            const s4Res = await searchStage4Hypotheses(baseReq, parsed.cryptoKey, activeProfile);
+            result.stage4HypothesisResult = { stage: 4, expectedCanonical: stage4ExpectedCanonical, ...s4Res };
+            result.stage5HypothesisResult = { type: 'skipped' };
+            result.hypothesisResult = s4Res;
+            return result;
+        }
+
+        // Both Stage 4 and Stage 5 failed simultaneously (!s4.passed && !s5.passed)
+        const s4Res = await searchStage4Hypotheses(baseReq, parsed.cryptoKey, activeProfile);
+        const s5Res = await searchStage5Hypotheses(baseReq, bodyHashHex, cleanReqDigest, activeProfile);
+        result.stage4HypothesisResult = { stage: 4, expectedCanonical: stage4ExpectedCanonical, ...s4Res };
+        result.stage5HypothesisResult = { stage: 5, expectedCanonical: stage5ExpectedCanonical, ...s5Res };
+
+        if (s4Res.type === 'found' && s5Res.type === 'found') {
+            result.expectedCanonical = stage5ExpectedCanonical;
+            result.hypothesisResult = {
+                type: 'found',
+                sets: mergeStage4AndStage5Sets(s4Res.sets, s5Res.sets),
+                reduced: Boolean(s4Res.reduced || s5Res.reduced),
+                stage4: result.stage4HypothesisResult,
+                stage5: result.stage5HypothesisResult
+            };
+        } else if (s4Res.type === 'found') {
+            result.hypothesisResult = {
+                ...s4Res,
+                stage4: result.stage4HypothesisResult,
+                stage5: result.stage5HypothesisResult
+            };
+        } else if (s5Res.type === 'found') {
+            result.expectedCanonical = stage5ExpectedCanonical;
+            result.hypothesisResult = {
+                ...s5Res,
+                reduced: Boolean(s4Res.reduced || s5Res.reduced),
+                stage4: result.stage4HypothesisResult,
+                stage5: result.stage5HypothesisResult
+            };
+        } else {
+            result.hypothesisResult = {
+                type: 'no-match',
+                reduced: Boolean(s4Res.reduced || s5Res.reduced),
+                stage4: result.stage4HypothesisResult,
+                stage5: result.stage5HypothesisResult
+            };
+        }
         return result;
     }
 
+    /**
+     * 에러 처리 규약 안내 (`diagnose` vs `generateTestSignature`):
+     * - `diagnose(inputs, profile)`는 다단계 진단 파이프라인이므로, 입력 형식 오류가 있어도 예외를 던지지 않고
+     *   진단 리포트 객체(`{ stages, warnings, error: { code, message, ... } }`)를 반환해 UI/CLI가 단일 경로로 렌더링하게 한다.
+     * - 반면 `generateTestSignature(inputs, profile)`는 키쌍 생성 및 서명 수행이라는 단일 명령형 액션 유틸리티이므로,
+     *   입력 오류 시 구조화된 속성(`code`, `detail`, `line`, `column`, `problemLine`, `cleanMessage`, `hintCode`, `hint`, `hintExample`)을
+     *   담은 `Error`를 throw(Promise reject)하여 호출부(`try / await / catch`)가 실패를 즉시 분기 처리하도록 한다.
+     */
     async function generateTestSignature(inputs, profile = PaperProfile) {
         const activeProfile = profile || PaperProfile;
         const norm = normalizeInputs(inputs);
 
         const jsonErr = validateJsonBody(
             norm.bodyStr,
-            '요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\nJSON 문법(중괄호, 쉼표, 따옴표 등)을 먼저 수정해 주셔야 서명을 생성할 수 있습니다.'
+            '요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\nJSON 문법(중괄호, 쉼표, 따옴표 등)을 먼저 수정해 주셔야 서명을 생성할 수 있습니다.',
+            norm.contentType
         );
         if (jsonErr) {
             const err = new Error(jsonErr.message);
             err.code = jsonErr.code;
             err.detail = jsonErr.detail;
+            err.line = jsonErr.line;
+            err.column = jsonErr.column;
+            err.problemLine = jsonErr.problemLine;
+            err.cleanMessage = jsonErr.cleanMessage;
             if (jsonErr.hintCode) err.hintCode = jsonErr.hintCode;
             if (jsonErr.hint) err.hint = jsonErr.hint;
             if (jsonErr.hintExample) err.hintExample = jsonErr.hintExample;
@@ -523,6 +820,9 @@
         let url;
         try {
             url = new URL(norm.urlStr);
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                throw new Error('Only HTTP(S) URLs are supported');
+            }
         } catch (e) {
             const err = new Error("URL이 올바르지 않습니다.");
             err.code = ERROR_CODES.INVALID_URL;
@@ -534,7 +834,7 @@
         const reqDigest = prefixStr + digestHex;
         const canonicalStr = buildString({
             method: activeProfile.methodCase === 'UPPER' ? norm.method.toUpperCase() : norm.method,
-            host: url.host,
+            host: extractEffectiveHost(url, norm.urlStr),
             path: url.pathname,
             query: url.search.substring(1) || "",
             bodyHash: digestHex,
@@ -553,17 +853,32 @@
         };
     }
 
-    return Object.assign({}, deps, {
+    // 명시적 공개 API 목록만 노출 (_atob, _btoa, _crypto, binaryStringToBytes 등 내부 헬퍼 및 미사용 심볼 제외)
+    return {
         diagnose,
+        validateJsonBody,
         generateTestSignature,
-        HYPOTHESES,
-        derToRaw,
-        STAGE_IDS,
-        PaperProfile,
-        detectJsonErrorHint,
-        JSON_HINT_CODES,
         ERROR_CODES,
         STAGE_CODES,
-        WARNING_CODES
-    });
+        WARNING_CODES,
+        PaperProfile,
+        HYPOTHESES,
+        JSON_HINT_CODES,
+        detectJsonErrorHint,
+        extractJsonErrorLocation,
+        inspectSignature,
+        inspectPublicKey,
+        parseCurl,
+        parseRawHttp,
+        importPublicKey,
+        derToRaw,
+        PEM_PUBLIC_KEY_HEADER,
+        PEM_PUBLIC_KEY_FOOTER,
+        base64UrlDecode,
+        base64StandardDecode,
+        base64UrlEncodeBytes,
+        bytesToHex,
+        bytesToBinaryString,
+        hashString
+    };
 });

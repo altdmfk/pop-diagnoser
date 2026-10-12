@@ -21,6 +21,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         const {
+            DEMO_SAMPLES,
             showToast,
             setPlaceholder,
             setOverheadVisible,
@@ -33,8 +34,16 @@
             initInspector,
             resetInspector,
             refreshInspector,
-            initImporter
+            initImporter,
+            readRequestBody,
+            setRawTextareaValue
         } = root.PopUI;
+
+        const getBodyValue = () => {
+            const bodyEl = document.getElementById('req-body');
+            if (!bodyEl) return '';
+            return typeof readRequestBody === 'function' ? readRequestBody(bodyEl) : bodyEl.value;
+        };
 
         initTabs();
         initMemorySlots();
@@ -43,6 +52,18 @@
         }
         if (typeof initImporter === 'function') {
             initImporter();
+        }
+
+        const reqBodyEl = document.getElementById('req-body');
+        if (reqBodyEl && typeof reqBodyEl.addEventListener === 'function') {
+            reqBodyEl.addEventListener('paste', (e) => {
+                if (e && e.clipboardData && typeof e.clipboardData.getData === 'function') {
+                    const pasted = e.clipboardData.getData('text/plain');
+                    if (typeof pasted === 'string' && pasted.includes('\r\n')) {
+                        reqBodyEl._rawBody = pasted;
+                    }
+                }
+            });
         }
 
         const evalTimeInput = document.getElementById('eval-timestamp');
@@ -56,7 +77,7 @@
             btnFillPubkey.addEventListener('click', () => {
                 const pkEl = document.getElementById('req-pubkey');
                 if (pkEl) {
-                    pkEl.value = (root.FIXTURES && root.FIXTURES.public_key) || DEFAULT_FALLBACK_PUBKEY;
+                    pkEl.value = (DEMO_SAMPLES && DEMO_SAMPLES.public_key) || DEFAULT_FALLBACK_PUBKEY;
                     showToast('🔑 예시 공개키가 입력칸에 채워졌습니다.');
                     if (typeof resetInspector === 'function') resetInspector();
                 }
@@ -64,11 +85,11 @@
         }
 
         const loadDemo = (fixtureName, showFeedback = false) => {
-            if (!root.FIXTURES || !root.FIXTURES.cases) {
-                showToast('⚠️ 데모 데이터를 불러오지 못했습니다. (fixtures.js 확인 필요)', true);
+            if (!DEMO_SAMPLES || !DEMO_SAMPLES.cases) {
+                showToast('⚠️ 데모 데이터를 불러오지 못했습니다. (samples.js 확인 필요)', true);
                 return;
             }
-            const fixture = root.FIXTURES.cases.find(c => c.name === fixtureName);
+            const fixture = DEMO_SAMPLES.cases.find(c => c.name === fixtureName);
             if (!fixture) {
                 showToast('⚠️ 해당 데모 케이스를 찾을 수 없습니다.', true);
                 return;
@@ -76,7 +97,13 @@
 
             const setVal = (id, val) => {
                 const el = document.getElementById(id);
-                if (el) el.value = val;
+                if (!el) return;
+                if (id === 'req-body' && typeof setRawTextareaValue === 'function') {
+                    setRawTextareaValue(el, val);
+                } else {
+                    el.value = val;
+                    delete el._rawBody;
+                }
             };
 
             setVal('req-method', fixture.method);
@@ -86,9 +113,9 @@
             setVal('req-timestamp', fixture.timestamp);
             setVal('req-signature', fixture.signature);
             setVal('req-digest', fixture.digest || '');
-            setVal('req-pubkey', root.FIXTURES.public_key || DEFAULT_FALLBACK_PUBKEY);
+            setVal('req-pubkey', DEMO_SAMPLES.public_key || DEFAULT_FALLBACK_PUBKEY);
 
-            if (evalTimeInput) evalTimeInput.value = root.FIXTURES.eval_time;
+            if (evalTimeInput) evalTimeInput.value = DEMO_SAMPLES.eval_time;
             if (typeof resetInspector === 'function') resetInspector();
 
             if (showFeedback) {
@@ -114,10 +141,16 @@
         document.getElementById('btn-clear-all').addEventListener('click', () => {
             FORM_FIELD_IDS.forEach(id => {
                 const el = document.getElementById(id);
-                if (el) el.value = '';
+                if (el) {
+                    el.value = '';
+                    delete el._rawBody;
+                }
             });
             const curlInput = document.getElementById('curl-import-input');
-            if (curlInput) curlInput.value = '';
+            if (curlInput) {
+                curlInput.value = '';
+                delete curlInput._rawBody;
+            }
             const statusBanner = document.getElementById('import-status-banner');
             if (statusBanner) statusBanner.classList.add('hidden');
             const applyNotice = document.getElementById('curl-apply-notice');
@@ -136,7 +169,7 @@
                 const inputs = {
                     method: document.getElementById('req-method').value || 'POST',
                     urlStr: document.getElementById('req-url').value,
-                    bodyStr: document.getElementById('req-body').value.replace(/\r\n/g, '\n'),
+                    bodyStr: getBodyValue(),
                     nonce: document.getElementById('req-nonce').value || 'n-test',
                     timestampStr: document.getElementById('req-timestamp').value || Math.floor(Date.now() / 1000).toString()
                 };
@@ -183,7 +216,7 @@
             const inputs = {
                 method: cleanNoSpace('HTTP 메서드', document.getElementById('req-method').value),
                 urlStr: document.getElementById('req-url').value.trim(),
-                bodyStr: document.getElementById('req-body').value.replace(/\r\n/g, '\n'),
+                bodyStr: getBodyValue(),
                 nonce: cleanNoSpace('Nonce', document.getElementById('req-nonce').value),
                 timestampStr: cleanNoSpace('Timestamp', document.getElementById('req-timestamp').value),
                 signature: cleanNoSpace('Signature', document.getElementById('req-signature').value),

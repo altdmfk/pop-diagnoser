@@ -270,21 +270,33 @@ textarea {
 .diff-row.match {
   color: #858585;
 }
-.diff-row.expected {
+.diff-row.actual {
   background-color: rgba(244, 63, 94, 0.2);
   color: #fda4af;
 }
-.diff-row.expected::before {
+.diff-row.actual::before {
   content: '- ';
   user-select: none;
 }
-.diff-row.actual {
+.diff-row.expected {
   background-color: rgba(16, 185, 129, 0.2);
   color: #6ee7b7;
 }
-.diff-row.actual::before {
+.diff-row.expected::before {
   content: '+ ';
   user-select: none;
+}
+.hypothesis-stage-section + .hypothesis-stage-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #bbf7d0;
+}
+.hypothesis-stage-section.error {
+  padding: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #991b1b;
 }
 
 .field-desc {

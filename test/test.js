@@ -1,17 +1,27 @@
 const PopCore = (typeof window !== 'undefined' && window.PopCore)
     ? window.PopCore
     : require('../js/core/diagnose.js');
-const fixtures = (typeof window !== 'undefined' && window.FIXTURES)
-    ? window.FIXTURES
+const fixtures = (typeof window !== 'undefined' && window.PopTestFixtures)
+    ? window.PopTestFixtures
     : require('./fixtures/fixtures.js');
 const PopUI = (typeof window !== 'undefined' && window.PopUI)
     ? window.PopUI
-    : Object.assign({}, require('../js/ui/render.js'), require('../js/ui/slots.js'), require('../js/ui/tabs.js'), require('../js/ui/inspector.js'), require('../js/ui/importer.js'));
+    : Object.assign(
+        {},
+        require('../js/ui/samples.js'),
+        require('../js/ui/jsonError.js'),
+        require('../js/ui/render.js'),
+        require('../js/ui/slots.js'),
+        require('../js/ui/tabs.js'),
+        require('../js/ui/inspector.js'),
+        require('../js/ui/importer.js')
+    );
 
 async function runTests() {
     const pubkeyPem = fixtures.public_key;
     let passed = 0;
     let failed = 0;
+    let skipped = 0;
 
     for (let c of fixtures.cases) {
         const inputs = {
@@ -72,7 +82,7 @@ async function runTests() {
         { name: "bad-timestamp", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "abc", signature: validSig, pubkeyPem: pubkeyPem }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_TIMESTAMP },
         { name: "bad-signature-length", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "1", signature: "abcde", pubkeyPem: pubkeyPem }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_SIGNATURE_ENCODING },
         { name: "missing-nonce", inputs: { method: "POST", urlStr: "https://a.com/", timestampStr: "1", signature: validSig, pubkeyPem: pubkeyPem }, expectError: false, expectedStage: 1 },
-        { name: "bad-json", inputs: { method: "POST", urlStr: "https://a.com/", bodyStr: "{bad json}", nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: pubkeyPem }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_JSON },
+        { name: "bad-json", inputs: { method: "POST", urlStr: "https://a.com/", bodyStr: "{bad json}", nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: pubkeyPem }, expectError: false, expectedStage: 2, expectedWarningCode: PopCore.ERROR_CODES.INVALID_JSON },
         { name: "long-input", inputs: { method: "POST", urlStr: "https://a.com/", bodyStr: JSON.stringify({ data: "A".repeat(100000) }), nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: pubkeyPem }, expectError: false }
     ];
 
@@ -90,6 +100,10 @@ async function runTests() {
             console.log(`[FAIL] ${t.name}: Expected error code ${t.expectedCode}, got ${result.error ? result.error.code : 'none'}`);
             ok = false;
         }
+        if (t.expectedWarningCode && (!result.warnings || !result.warnings.some(w => w.code === t.expectedWarningCode))) {
+            console.log(`[FAIL] ${t.name}: Expected warning code ${t.expectedWarningCode}, got ${JSON.stringify(result.warnings)}`);
+            ok = false;
+        }
         if (t.expectedStage !== undefined && result.firstFailedStage !== t.expectedStage) {
             console.log(`[FAIL] ${t.name}: Expected firstFailedStage ${t.expectedStage}, got ${result.firstFailedStage}`);
             ok = false;
@@ -97,7 +111,7 @@ async function runTests() {
         if (ok) passed++; else failed++;
     }
 
-    // Dynamic tests for newly revived / added hypotheses & DER boundary cases
+    // Hypothesis catalog & DER boundary tests using independent SHA-256 & ECDSA P-256 test vectors
     const _crypto = typeof crypto !== 'undefined' ? crypto : require('crypto').webcrypto;
     const _btoa = typeof btoa !== 'undefined' ? btoa : (str) => Buffer.from(str, 'binary').toString('base64');
 
@@ -121,81 +135,29 @@ async function runTests() {
         return await _crypto.subtle.sign({ name: "ECDSA", hash: { name: "SHA-256" } }, keyPair.privateKey, data);
     }
 
-    function rawToDer(rawBuf) {
-        const raw = new Uint8Array(rawBuf);
-        function encodeInt(bytes32) {
-            let start = 0;
-            while (start < bytes32.length - 1 && bytes32[start] === 0x00) start++;
-            const stripped = bytes32.slice(start);
-            if (stripped[0] & 0x80) {
-                const out = new Uint8Array(stripped.length + 1);
-                out[0] = 0x00;
-                out.set(stripped, 1);
-                return out;
-            }
-            return stripped;
-        }
-        const rDer = encodeInt(raw.slice(0, 32));
-        const sDer = encodeInt(raw.slice(32, 64));
-        const seqLen = 2 + rDer.length + 2 + sDer.length;
-        const out = new Uint8Array(2 + seqLen);
-        out[0] = 0x30;
-        out[1] = seqLen;
-        out[2] = 0x02;
-        out[3] = rDer.length;
-        out.set(rDer, 4);
-        const sOff = 4 + rDer.length;
-        out[sOff] = 0x02;
-        out[sOff + 1] = sDer.length;
-        out.set(sDer, sOff + 2);
-        return out.buffer;
-    }
-
+    // Independent SHA-256 hex digest vectors (precomputed via RFC 6234 SHA-256 without calling PopCore.hashString)
     const baseBody = '{\n  "amount": 1000,\n  "to": "alice"\n}';
-    const baseBodyHash = await sha256Hex(baseBody);
+    const baseBodyHash = "11abf1e8f4f0c1d061f050db6235625033a2b55f486027c92c88b02542408e18";
+    const trailingBodyHash = "c2dcf36bf561397e745b132a268aa8834b6314ad9499d0aab24f5ba787c7f21c";
+    const upperBodyHash = "11ABF1E8F4F0C1D061F050DB6235625033A2B55F486027C92C88B02542408E18";
+    const bomBodyHash = "e6cf8512c3edd5c1f335b798296f4cff5c8c78ae432f0ce75453ccef82b155bb";
+    const bomCrlfBodyHash = "c2253c039a11e3b50dbc4673421bf77203b45a4fad3b3fd365c22587cf7c23c3";
+    const noSpaceBodyHash = "1e8ae6aa523704c641f4158680f5d758b2e4cc95380ef867a7e4ecbc4ccb0b16";
+    const crlfBodyHash = "6b0421c956fbb12b58aa984ca6338c9f9210ffc0ccde60d5e5cab9117d0a6088";
     const ts = "1791356800";
     const nonce = "n-test-999";
 
-    const stdB64Canonical = ["POST", "api.example.com", "/v1/tx", "a=1", baseBodyHash, nonce, ts].join('\n');
-    let stdB64SigStr = "";
-    for (let i = 0; i < 50; i++) {
-        const rawSig = await signRaw(stdB64Canonical);
-        const candidate = toStandardBase64(rawSig);
-        if (candidate.includes('+') || candidate.includes('/')) {
-            stdB64SigStr = candidate;
-            break;
-        }
-    }
+    // Deterministic fixed P-256 key and signatures for standard Base64 (+, /, =) and <70B short DER (69B)
+    const FIXED_VEC_PUBKEY_PEM =
+        "-----BEGIN PUBLIC KEY-----\n" +
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsm0SgmJR0zSk4Z3piS6HhAvTceT6\n" +
+        "WhNKI8ytpwZOluCDXM9uxZPvAC1uczn+SKE/10g/6yV9SGQPmgYTKvKvMg==\n" +
+        "-----END PUBLIC KEY-----";
+    const FIXED_VEC_PUBKEY_FP = "b409c9fcb5aa9b4c82cc05c41280f06b24e2b4269dd9a41b146b63d0a2cb5595";
+    const FIXED_STD_B64_SIG = "N5pGLOwDMX8uR+ERCvJANUBSJKaIFzAkNyhItAxi4XAHZ8kE5x5th8bASa8GnkN/zHJUalYyc8lSxGBRlsHdFw==";
+    const FIXED_SHORT_DER_B64URL = "MEMCHw6bziZsTTot-1eV3xPzPS7mrNfnz9mrom2Pm8VU_PMCIHa7LZUFfnfSyL3NiDBP2NnfBjEOzTXTPreUl5P3MiF0";
 
     const P256_N = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
-    function bytesToBigInt(bytes) {
-        let hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-        return BigInt("0x" + hex);
-    }
-    function bigIntToBytes32(num) {
-        const hex = num.toString(16).padStart(64, '0');
-        const out = new Uint8Array(32);
-        for (let i = 0; i < 32; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-        return out;
-    }
-
-    let shortDerSigB64Url = "";
-    for (let i = 0; i < 1000; i++) {
-        const rawSig = new Uint8Array(await signRaw(stdB64Canonical));
-        const sVal = bytesToBigInt(rawSig.slice(32, 64));
-        const lowS = sVal > (P256_N >> 1n) ? (P256_N - sVal) : sVal;
-        rawSig.set(bigIntToBytes32(lowS), 32);
-        const derBuf = rawToDer(rawSig.buffer);
-        if (derBuf.byteLength < 70) {
-            shortDerSigB64Url = toBase64Url(derBuf);
-            break;
-        }
-    }
-
-    const trailingBodyHash = await sha256Hex(baseBody + '\n');
-    const upperBodyHash = baseBodyHash.toUpperCase();
-    const bomBodyHash = await sha256Hex('\uFEFF' + baseBody);
-    const noSpaceBodyHash = await sha256Hex(JSON.stringify(JSON.parse(baseBody)));
 
     const dynamicCases = [
         {
@@ -238,8 +200,8 @@ async function runTests() {
                 bodyStr: baseBody,
                 nonce,
                 timestampStr: ts,
-                signature: stdB64SigStr,
-                pubkeyPem: dynPubkeyPem,
+                signature: FIXED_STD_B64_SIG,
+                pubkeyPem: FIXED_VEC_PUBKEY_PEM,
                 evalTime: Number(ts),
                 reqDigest: `sha256=${baseBodyHash}`
             },
@@ -341,11 +303,8 @@ async function runTests() {
             },
             expectedStage: 5,
             expectedIdStr: "body-reserialized-nospace"
-        }
-    ];
-
-    if (shortDerSigB64Url) {
-        dynamicCases.push({
+        },
+        {
             name: "hyp-sig-der-short-under-70b",
             inputs: {
                 method: "POST",
@@ -353,15 +312,15 @@ async function runTests() {
                 bodyStr: baseBody,
                 nonce,
                 timestampStr: ts,
-                signature: shortDerSigB64Url,
-                pubkeyPem: dynPubkeyPem,
+                signature: FIXED_SHORT_DER_B64URL,
+                pubkeyPem: FIXED_VEC_PUBKEY_PEM,
                 evalTime: Number(ts),
                 reqDigest: `sha256=${baseBodyHash}`
             },
             expectedStage: 4,
             expectedIdStr: "sig-der"
-        });
-    }
+        }
+    ];
 
     for (let dc of dynamicCases) {
         const res = await PopCore.diagnose(dc.inputs);
@@ -442,17 +401,19 @@ async function runTests() {
             signature: validSig,
             pubkeyPem: pubkeyPem
         });
+        const xssJsonWarn = xssBodyRes.warnings && xssBodyRes.warnings.find(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
         if (
-            xssBodyRes.error &&
-            typeof xssBodyRes.error.message === 'string' &&
-            !/<(div|strong|span|br)\b/i.test(xssBodyRes.error.message) &&
-            typeof xssBodyRes.error.detail === 'string' &&
-            xssBodyRes.error.detail.includes('<img src=x onerror=alert(1)>') &&
-            !xssBodyRes.error.detail.includes('<div')
+            xssBodyRes.error === null &&
+            xssJsonWarn &&
+            typeof xssJsonWarn.message === 'string' &&
+            !/<(div|strong|span|br)\b/i.test(xssJsonWarn.message) &&
+            typeof xssJsonWarn.detail === 'string' &&
+            xssJsonWarn.detail.includes('<img src=x onerror=alert(1)>') &&
+            !xssJsonWarn.detail.includes('<div')
         ) {
             passed++;
         } else {
-            console.log("[FAIL] xss-core-body-json: Core returned HTML wrapper or lost raw payload in error.detail");
+            console.log("[FAIL] xss-core-body-json: Core returned HTML wrapper or lost raw payload in warning.detail");
             failed++;
         }
 
@@ -601,40 +562,7 @@ async function runTests() {
             } finally {
                 global.document = prevDoc;
             }
-
-            // 6) localStorage resilience (blocked storage & corrupted JSON)
-            const prevStorage = global.localStorage;
-            try {
-                global.localStorage = {
-                    getItem() { throw new Error("SecurityError: localStorage disabled"); },
-                    setItem() { throw new Error("QuotaExceededError"); }
-                };
-                const blockedRead = readMemorySlots();
-                const blockedWrite = writeMemorySlots({ slot_1: {} });
-
-                global.localStorage = {
-                    getItem() { return "{broken-json"; },
-                    setItem() {}
-                };
-                const corruptedRead = readMemorySlots();
-
-                if (
-                    blockedRead.ok === false &&
-                    typeof blockedRead.data === 'object' &&
-                    blockedWrite.ok === false &&
-                    corruptedRead.ok === false &&
-                    typeof corruptedRead.data === 'object'
-                ) {
-                    passed++;
-                } else {
-                    console.log("[FAIL] storage-resilience: readMemorySlots/writeMemorySlots failed to handle storage errors");
-                    failed++;
-                }
-            } finally {
-                global.localStorage = prevStorage;
-            }
         } else {
-            // Browser environment DOM test
             let tempPanel = document.getElementById('result-panel');
             let createdTemp = false;
             if (!tempPanel) {
@@ -649,7 +577,41 @@ async function runTests() {
             renderResult(xssMethodRes);
             const methodOk = tempPanel.textContent.includes('<script>alert(1)</script>') && tempPanel.querySelectorAll('script').length === 0;
             if (createdTemp) tempPanel.remove();
-            if (bodyOk && methodOk) passed += 2; else failed += 2;
+            if (bodyOk && methodOk) {
+                passed++;
+            } else {
+                console.log("[FAIL] xss-ui-renderResult: Browser DOM XSS check failed");
+                failed++;
+            }
+        }
+
+        // 6) localStorage resilience (blocked storage & corrupted JSON — runs in both Node and Browser)
+        {
+            const blockedStorageMock = {
+                getItem() { throw new Error("SecurityError: localStorage disabled"); },
+                setItem() { throw new Error("QuotaExceededError"); }
+            };
+            const blockedRead = readMemorySlots(blockedStorageMock);
+            const blockedWrite = writeMemorySlots({ slot_1: {} }, blockedStorageMock);
+
+            const corruptedStorageMock = {
+                getItem() { return "{broken-json"; },
+                setItem() {}
+            };
+            const corruptedRead = readMemorySlots(corruptedStorageMock);
+
+            if (
+                blockedRead.ok === false &&
+                typeof blockedRead.data === 'object' &&
+                blockedWrite.ok === false &&
+                corruptedRead.ok === false &&
+                typeof corruptedRead.data === 'object'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] storage-resilience: readMemorySlots/writeMemorySlots failed to handle storage errors");
+                failed++;
+            }
         }
 
         // 7) Profile parameter injection check (diagnose(inputs, profile))
@@ -695,7 +657,7 @@ async function runTests() {
             failed++;
         }
 
-        // 9) Static accessibility check (Node): every <label for="..."> in index.html points to an existing id
+        // 9) Static accessibility check (Node fs): every <label for="..."> in index.html points to an existing id
         if (typeof window === 'undefined') {
             const fs = require('fs');
             const path = require('path');
@@ -727,6 +689,8 @@ async function runTests() {
                 console.log(`[FAIL] html-label-for-a11y: labels=${labelTagMatches.length}, withFor=${labelForIds.length}, allTargetsExist=${allTargetsExist}, reqUrlHasAriaLabel=${reqUrlHasAriaLabel}`);
                 failed++;
             }
+        } else {
+            skipped++;
         }
 
         // =========================================================================
@@ -770,29 +734,25 @@ async function runTests() {
             }
         }
 
-        // 11) inspectSignature: DER (70~72B with leading 0x00 and 68~69B without leading 0x00)
+        // 11) inspectSignature: DER (72B with leading 0x00 and 68B without leading 0x00 using explicit fixed DER byte arrays)
         {
-            // 72B DER where both r and s have MSB >= 0x80 (so both have leading 0x00 in DER)
-            const rHigh = new Uint8Array(32);
-            rHigh[0] = 0x8a; rHigh[31] = 0x01;
-            const sLow = new Uint8Array(32);
-            sLow[0] = 0x90; sLow[31] = 0x02;
-            const rawBothHigh = new Uint8Array(64);
-            rawBothHigh.set(rHigh, 0);
-            rawBothHigh.set(sLow, 32);
-            const der72 = rawToDer(rawBothHigh); // 2 + (2+33) + (2+33) = 72 bytes
-            const der72Res = inspectSignature(toBase64Url(der72));
+            // Explicit 72B DER: 30 46 02 21 00 8a 00...00 01 02 21 00 90 00...00 02
+            const der72 = new Uint8Array(72);
+            der72[0] = 0x30; der72[1] = 70;
+            der72[2] = 0x02; der72[3] = 33; der72[4] = 0x00; der72[5] = 0x8a; der72[36] = 0x01;
+            der72[37] = 0x02; der72[38] = 33; der72[39] = 0x00; der72[40] = 0x90; der72[71] = 0x02;
+            const expectedR72Hex = "8a" + "00".repeat(30) + "01";
+            const expectedS72Hex = "90" + "00".repeat(30) + "02";
+            const der72Res = inspectSignature(toBase64Url(der72.buffer));
 
-            // 68B Short DER where r is 30B (<0x80) and s is 32B (<0x80), no leading 0x00
-            const rShort = new Uint8Array(32);
-            rShort[2] = 0x45; rShort[31] = 0x11;
-            const sNoPad = new Uint8Array(32);
-            sNoPad[0] = 0x3f; sNoPad[31] = 0x22;
-            const rawShort = new Uint8Array(64);
-            rawShort.set(rShort, 0);
-            rawShort.set(sNoPad, 32);
-            const der68 = rawToDer(rawShort); // 2 + (2+30) + (2+32) = 68 bytes
-            const der68Res = inspectSignature(toBase64Url(der68));
+            // Explicit 68B Short DER: 30 42 02 1e 45 00...00 11 02 20 3f 00...00 22
+            const der68 = new Uint8Array(68);
+            der68[0] = 0x30; der68[1] = 66;
+            der68[2] = 0x02; der68[3] = 30; der68[4] = 0x45; der68[33] = 0x11;
+            der68[34] = 0x02; der68[35] = 32; der68[36] = 0x3f; der68[67] = 0x22;
+            const expectedR68Hex = "000045" + "00".repeat(28) + "11";
+            const expectedS68Hex = "3f" + "00".repeat(30) + "22";
+            const der68Res = inspectSignature(toBase64Url(der68.buffer));
 
             if (
                 der72.byteLength === 72 &&
@@ -800,15 +760,15 @@ async function runTests() {
                 der72Res.format === 'der' &&
                 der72Res.rLeadingZeroStripped === true &&
                 der72Res.sLeadingZeroStripped === true &&
-                der72Res.r === PopCore.bytesToHex(rHigh) &&
-                der72Res.s === PopCore.bytesToHex(sLow) &&
+                der72Res.r === expectedR72Hex &&
+                der72Res.s === expectedS72Hex &&
                 der68.byteLength === 68 &&
                 der68Res.ok === true &&
                 der68Res.format === 'der' &&
                 der68Res.rLeadingZeroStripped === false &&
                 der68Res.sLeadingZeroStripped === false &&
-                der68Res.r === PopCore.bytesToHex(rShort) &&
-                der68Res.s === PopCore.bytesToHex(sNoPad)
+                der68Res.r === expectedR68Hex &&
+                der68Res.s === expectedS68Hex
             ) {
                 passed++;
             } else {
@@ -863,8 +823,9 @@ async function runTests() {
             }
         }
 
-        // 13) inspectPublicKey: valid P-256 keys (fixture + generateTestSignature) & independent SHA-256 fingerprint check
+        // 13) inspectPublicKey: valid P-256 keys & independent SHA-256 fingerprint test vector
         {
+            const vecPubRes = await inspectPublicKey(FIXED_VEC_PUBKEY_PEM);
             const fixPubRes = await inspectPublicKey(pubkeyPem);
             const genOut = await PopCore.generateTestSignature({
                 method: 'POST',
@@ -875,24 +836,17 @@ async function runTests() {
             });
             const genPubRes = await inspectPublicKey(genOut.pubkeyPem);
 
-            // Independently compute SHA-256 fingerprint of fixture SPKI DER using crypto.subtle
-            const cleanB64 = pubkeyPem
-                .replace('-----BEGIN PUBLIC KEY-----', '')
-                .replace('-----END PUBLIC KEY-----', '')
-                .replace(/\s/g, '');
-            const bin = PopCore.base64StandardDecode(cleanB64);
-            const independentDigest = await _crypto.subtle.digest('SHA-256', bin);
-            const independentFp = PopCore.bytesToHex(independentDigest);
-
             if (
+                vecPubRes.ok === true &&
+                vecPubRes.algorithmOid === '1.2.840.10045.2.1' &&
+                vecPubRes.curveOid === '1.2.840.10045.3.1.7' &&
+                vecPubRes.pointFormat === 'uncompressed(0x04)' &&
+                vecPubRes.x.length === 64 &&
+                vecPubRes.y.length === 64 &&
+                vecPubRes.onCurve === true &&
+                vecPubRes.fingerprint === FIXED_VEC_PUBKEY_FP &&
                 fixPubRes.ok === true &&
-                fixPubRes.algorithmOid === '1.2.840.10045.2.1' &&
-                fixPubRes.curveOid === '1.2.840.10045.3.1.7' &&
-                fixPubRes.pointFormat === 'uncompressed(0x04)' &&
-                fixPubRes.x.length === 64 &&
-                fixPubRes.y.length === 64 &&
                 fixPubRes.onCurve === true &&
-                fixPubRes.fingerprint === independentFp &&
                 genPubRes.ok === true &&
                 genPubRes.onCurve === true &&
                 genPubRes.fingerprint.length === 64
@@ -1008,7 +962,7 @@ async function runTests() {
                 };
             }
 
-            let uiSafe = true;
+            let uiSafe = false;
             if (typeof window === 'undefined') {
                 const prevDoc = global.document;
                 global.document = {
@@ -1032,6 +986,16 @@ async function runTests() {
                 } finally {
                     global.document = prevDoc;
                 }
+            } else {
+                const sigBox = document.createElement('div');
+                const pubBox = document.createElement('div');
+                PopUI.renderSignatureInspect(sigBox, xssSigReport);
+                PopUI.renderPublicKeyInspect(pubBox, xssPubReport);
+                uiSafe =
+                    sigBox.querySelectorAll('script,img').length === 0 &&
+                    pubBox.querySelectorAll('script,img').length === 0 &&
+                    sigBox.textContent.includes('INVALID_ENCODING') &&
+                    pubBox.textContent.includes('INVALID_BASE64');
             }
 
             if (
@@ -1228,8 +1192,9 @@ async function runTests() {
             const brokenParsed = parseCurl(brokenJsonHttp);
             const brokenDiag = await PopCore.diagnose({
                 ...brokenParsed.inputs,
-                pubkeyPem: '' // even when pubkeyPem is empty, broken JSON should be caught
+                pubkeyPem: '' // Stage 1 runs first (missing pubkey -> stage 1 fail), while broken JSON is recorded as warning
             });
+            const brokenWarn = brokenDiag.warnings && brokenDiag.warnings.find(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
 
             if (
                 crlfRes.ok === true &&
@@ -1243,9 +1208,13 @@ async function runTests() {
                 lfRes.inputs.urlStr === 'https://api.example.com/v1/tx?c=3&a=1&b=2' &&
                 lfRes.inputs.bodyStr === '{\n  "amount": 1000\n}' &&
                 brokenParsed.ok === true &&
-                brokenDiag.error &&
-                brokenDiag.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
-                brokenDiag.error.detail.includes('▲')
+                brokenDiag.error === null &&
+                brokenDiag.firstFailedStage === 1 &&
+                brokenWarn &&
+                typeof brokenWarn.line === 'number' &&
+                typeof brokenWarn.column === 'number' &&
+                !brokenWarn.detail.includes('▲') &&
+                PopUI.formatJsonErrorSnippet(brokenWarn).includes('▲')
             ) {
                 passed++;
             } else {
@@ -1352,7 +1321,7 @@ async function runTests() {
                 };
             }
 
-            let importerUiSafe = true;
+            let importerUiSafe = false;
             if (typeof window === 'undefined') {
                 const prevDoc = global.document;
                 global.document = {
@@ -1373,6 +1342,12 @@ async function runTests() {
                 } finally {
                     global.document = prevDoc;
                 }
+            } else {
+                const banner = document.createElement('div');
+                PopUI.renderImportStatus(banner, xssParsed);
+                importerUiSafe =
+                    banner.querySelectorAll('script,img,svg').length === 0 &&
+                    banner.querySelector('.import-report-ok') !== null;
             }
 
             if (
@@ -1390,11 +1365,11 @@ async function runTests() {
 
         // 22) JSON error detection & smart hint unit and integration tests
         {
-            const userCaseBody = '\n  "amount": 1000,\n  "to": "alice"\n}';
-            const userCaseRes = await PopCore.diagnose({
+            const missingOpenBraceBody = '\n  "amount": 1000,\n  "to": "alice"\n}';
+            const missingOpenBraceRes = await PopCore.diagnose({
                 method: "POST",
                 urlStr: "https://api.example.com/v1/tx",
-                bodyStr: userCaseBody,
+                bodyStr: missingOpenBraceBody,
                 nonce: "n1",
                 timestampStr: "1700000000",
                 signature: validSig,
@@ -1441,41 +1416,51 @@ async function runTests() {
                 pubkeyPem: fixtures.public_key
             });
 
-            const userCaseOk =
-                userCaseRes.error &&
-                userCaseRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
-                userCaseRes.error.hintCode === PopCore.JSON_HINT_CODES.MISSING_OPEN_BRACE &&
-                typeof userCaseRes.error.hint === 'string' &&
-                userCaseRes.error.detail.includes('▲');
+            const getJsonWarn = (r) => r.warnings && r.warnings.find(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
+            const wMissingOpen = getJsonWarn(missingOpenBraceRes);
+            const wMissingClose = getJsonWarn(missingClosingRes);
+            const wTrailing = getJsonWarn(trailingCommaRes);
+            const wSingle = getJsonWarn(singleQuoteRes);
+            const wUnquoted = getJsonWarn(unquotedKeyRes);
+
+            const missingOpenBraceOk =
+                missingOpenBraceRes.error === null &&
+                wMissingOpen &&
+                wMissingOpen.hintCode === PopCore.JSON_HINT_CODES.MISSING_OPEN_BRACE &&
+                typeof wMissingOpen.hint === 'string' &&
+                typeof wMissingOpen.line === 'number' &&
+                typeof wMissingOpen.column === 'number' &&
+                !wMissingOpen.detail.includes('▲') &&
+                PopUI.formatJsonErrorSnippet(wMissingOpen).includes('▲');
 
             const missingClosingOk =
-                missingClosingRes.error &&
-                missingClosingRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
-                missingClosingRes.error.hintCode === PopCore.JSON_HINT_CODES.MISSING_CLOSE_BRACE &&
-                typeof missingClosingRes.error.hint === 'string';
+                missingClosingRes.error === null &&
+                wMissingClose &&
+                wMissingClose.hintCode === PopCore.JSON_HINT_CODES.MISSING_CLOSE_BRACE &&
+                typeof wMissingClose.hint === 'string';
 
             const trailingCommaOk =
-                trailingCommaRes.error &&
-                trailingCommaRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
-                trailingCommaRes.error.hintCode === PopCore.JSON_HINT_CODES.TRAILING_COMMA &&
-                typeof trailingCommaRes.error.hint === 'string';
+                trailingCommaRes.error === null &&
+                wTrailing &&
+                wTrailing.hintCode === PopCore.JSON_HINT_CODES.TRAILING_COMMA &&
+                typeof wTrailing.hint === 'string';
 
             const singleQuoteOk =
-                singleQuoteRes.error &&
-                singleQuoteRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
-                singleQuoteRes.error.hintCode === PopCore.JSON_HINT_CODES.SINGLE_QUOTE &&
-                typeof singleQuoteRes.error.hint === 'string';
+                singleQuoteRes.error === null &&
+                wSingle &&
+                wSingle.hintCode === PopCore.JSON_HINT_CODES.SINGLE_QUOTE &&
+                typeof wSingle.hint === 'string';
 
             const unquotedKeyOk =
-                unquotedKeyRes.error &&
-                unquotedKeyRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
-                unquotedKeyRes.error.hintCode === PopCore.JSON_HINT_CODES.UNQUOTED_KEY &&
-                typeof unquotedKeyRes.error.hint === 'string';
+                unquotedKeyRes.error === null &&
+                wUnquoted &&
+                wUnquoted.hintCode === PopCore.JSON_HINT_CODES.UNQUOTED_KEY &&
+                typeof wUnquoted.hint === 'string';
 
-            if (userCaseOk && missingClosingOk && trailingCommaOk && singleQuoteOk && unquotedKeyOk) {
+            if (missingOpenBraceOk && missingClosingOk && trailingCommaOk && singleQuoteOk && unquotedKeyOk) {
                 passed++;
             } else {
-                console.log("[FAIL] json-error-smart-hints: Failed JSON error diagnosis or smart hint generation");
+                console.log("[FAIL] json-error-smart-hints: Failed JSON warning diagnosis or smart hint generation");
                 failed++;
             }
         }
@@ -1520,9 +1505,1716 @@ async function runTests() {
                 failed++;
             }
         }
+
+        // 24) Non-JSON body ("hello", empty, plain text, form-urlencoded) passes all 1~5 stages when signed & digested properly
+        {
+            const nonJsonBodies = ["hello", "", "plain text body", "a=1&b=2&c=hello"];
+            let allNonJsonOk = true;
+            for (const plainBody of nonJsonBodies) {
+                const plainHash = await sha256Hex(plainBody);
+                const plainCanonical = ["POST", "api.example.com", "/v1/tx", "a=1", plainHash, nonce, ts].join('\n');
+                const plainSig = toBase64Url(await signRaw(plainCanonical));
+                const plainRes = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx?a=1",
+                    bodyStr: plainBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: plainSig,
+                    pubkeyPem: dynPubkeyPem,
+                    evalTime: Number(ts),
+                    reqDigest: `sha256=${plainHash}`
+                });
+                if (
+                    plainRes.error !== null ||
+                    plainRes.firstFailedStage !== null ||
+                    plainRes.stages.length !== 5 ||
+                    plainRes.stages[0].status !== 'pass' ||
+                    plainRes.stages[1].status !== 'pass' ||
+                    plainRes.stages[2].status !== 'unknown' ||
+                    plainRes.stages[3].status !== 'pass' ||
+                    plainRes.stages[4].status !== 'pass' ||
+                    plainRes.warnings.length !== 0 ||
+                    !plainRes.hypothesisResult ||
+                    plainRes.hypothesisResult.type !== 'skipped'
+                ) {
+                    allNonJsonOk = false;
+                    break;
+                }
+            }
+            if (allNonJsonOk) {
+                passed++;
+            } else {
+                console.log("[FAIL] non-json-body-hello-pass: Non-JSON body ('hello' / empty / form-urlencoded) failed to pass all 5 stages");
+                failed++;
+            }
+        }
+
+        // 25) Broken JSON + digest mismatch shows JSON syntax hint and line/col arrow on result screen
+        {
+            const validSignedCanonical = ["POST", "api.example.com", "/v1/tx", "a=1", baseBodyHash, nonce, ts].join('\n');
+            const validSignedSig = toBase64Url(await signRaw(validSignedCanonical));
+            const brokenBody = '{\n  "amount": 1000,\n  "to": "alice"\n'; // missing closing brace '}'
+            const mismatchRes = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: brokenBody,
+                nonce,
+                timestampStr: ts,
+                signature: validSignedSig,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${baseBodyHash}`
+            });
+
+            const jsonWarn = mismatchRes.warnings && mismatchRes.warnings.find(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
+            let renderedHasHint = false;
+            if (typeof window === 'undefined') {
+                const mockPanel = createMockNode('div');
+                const prevDoc = global.document;
+                global.document = {
+                    getElementById(id) { return id === 'result-panel' ? mockPanel : null; },
+                    createElement(tag) { return createMockNode(tag.toUpperCase()); },
+                    createTextNode(text) {
+                        const node = createMockNode('#text');
+                        node._text = String(text ?? '');
+                        return node;
+                    }
+                };
+                try {
+                    renderResult(mismatchRes);
+                    const renderedText = mockPanel.textContent;
+                    renderedHasHint = Boolean(jsonWarn && renderedText.includes(jsonWarn.hint) && renderedText.includes('▲'));
+                } finally {
+                    global.document = prevDoc;
+                }
+            } else {
+                let tempPanel = document.getElementById('result-panel');
+                let createdTemp = false;
+                if (!tempPanel) {
+                    tempPanel = document.createElement('div');
+                    tempPanel.id = 'result-panel';
+                    tempPanel.className = 'hidden';
+                    document.body.appendChild(tempPanel);
+                    createdTemp = true;
+                }
+                renderResult(mismatchRes);
+                const renderedText = tempPanel.textContent;
+                renderedHasHint = Boolean(jsonWarn && renderedText.includes(jsonWarn.hint) && renderedText.includes('▲'));
+                if (createdTemp) tempPanel.remove();
+            }
+
+            if (
+                mismatchRes.error === null &&
+                mismatchRes.firstFailedStage === 5 &&
+                mismatchRes.stages.length === 5 &&
+                mismatchRes.stages[3].status === 'pass' &&
+                mismatchRes.stages[4].status === 'fail' &&
+                jsonWarn &&
+                jsonWarn.hintCode === PopCore.JSON_HINT_CODES.MISSING_CLOSE_BRACE &&
+                typeof jsonWarn.hint === 'string' &&
+                typeof jsonWarn.line === 'number' &&
+                typeof jsonWarn.column === 'number' &&
+                !jsonWarn.detail.includes('▲') &&
+                PopUI.formatJsonErrorSnippet(jsonWarn).includes('▲') &&
+                renderedHasHint
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] broken-json-digest-mismatch-hint: Broken JSON + Stage 5 digest mismatch did not expose JSON hint");
+                failed++;
+            }
+        }
+
+        // 26) Broken JSON with valid signature and matching digest passes all stages (JSON hint only as warning)
+        {
+            const brokenBodySigned = '{\n  "amount": 1000,\n}'; // trailing comma (broken JSON), but signed & digested as-is
+            const brokenHash = await sha256Hex(brokenBodySigned);
+            const brokenCanonical = ["POST", "api.example.com", "/v1/tx", "a=1", brokenHash, nonce, ts].join('\n');
+            const brokenSig = toBase64Url(await signRaw(brokenCanonical));
+            const brokenPassRes = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: brokenBodySigned,
+                nonce,
+                timestampStr: ts,
+                signature: brokenSig,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${brokenHash}`
+            });
+            const jsonWarn = brokenPassRes.warnings && brokenPassRes.warnings.find(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
+
+            if (
+                brokenPassRes.error === null &&
+                brokenPassRes.firstFailedStage === null &&
+                brokenPassRes.stages.length === 5 &&
+                brokenPassRes.stages[3].status === 'pass' &&
+                brokenPassRes.stages[4].status === 'pass' &&
+                brokenPassRes.hypothesisResult &&
+                brokenPassRes.hypothesisResult.type === 'skipped' &&
+                jsonWarn &&
+                jsonWarn.hintCode === PopCore.JSON_HINT_CODES.TRAILING_COMMA &&
+                typeof jsonWarn.hint === 'string' &&
+                typeof jsonWarn.line === 'number' &&
+                typeof jsonWarn.column === 'number' &&
+                !jsonWarn.detail.includes('▲') &&
+                PopUI.formatJsonErrorSnippet(jsonWarn).includes('▲')
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] broken-json-valid-sig-digest-pass-with-warning: Broken JSON with valid sig/digest did not pass with warning");
+                failed++;
+            }
+        }
+
+        // 27) Signature encoding unification: 128-char hex & ambiguous length/charset priorities (diagnose vs inspectSignature)
+        {
+            const validCase = fixtures.cases[0];
+            const validSigBytes = PopCore.base64UrlDecode(validCase.signature);
+            const hex128Sig = PopCore.bytesToHex(validSigBytes); // 128-char deterministic hex of 64B raw signature
+
+            const hexInspect = inspectSignature(hex128Sig);
+            const hexDiag = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: validCase.body,
+                nonce: validCase.nonce,
+                timestampStr: String(validCase.timestamp),
+                signature: hex128Sig,
+                pubkeyPem,
+                evalTime: validCase.evalTime,
+                reqDigest: validCase.digest
+            });
+
+            // Ambiguous case 1: 86-char [0-9a-f] without 0x and not starting with 30 -> base64url (64B)
+            const ambig86B64Url = 'a'.repeat(86);
+            const ambig86Inspect = inspectSignature(ambig86B64Url);
+            const ambig86Diag = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: validCase.body,
+                nonce: validCase.nonce,
+                timestampStr: String(validCase.timestamp),
+                signature: ambig86B64Url,
+                pubkeyPem,
+                evalTime: validCase.evalTime,
+                reqDigest: validCase.digest
+            });
+
+            // Ambiguous case 2: 86-char [0-9a-f] with 0x prefix -> hex (43B)
+            const ambig0xHex = '0x' + 'a'.repeat(86);
+            const ambig0xInspect = inspectSignature(ambig0xHex);
+            const ambig0xDiag = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: validCase.body,
+                nonce: validCase.nonce,
+                timestampStr: String(validCase.timestamp),
+                signature: ambig0xHex,
+                pubkeyPem,
+                evalTime: validCase.evalTime,
+                reqDigest: validCase.digest
+            });
+
+            // Ambiguous case 3: 86-char [0-9a-f] starting with 30 (DER tag) -> hex (43B)
+            const ambig30Hex = '30' + 'a'.repeat(84);
+            const ambig30Inspect = inspectSignature(ambig30Hex);
+            const ambig30Diag = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: validCase.body,
+                nonce: validCase.nonce,
+                timestampStr: String(validCase.timestamp),
+                signature: ambig30Hex,
+                pubkeyPem,
+                evalTime: validCase.evalTime,
+                reqDigest: validCase.digest
+            });
+
+            if (
+                hexInspect.encoding === 'hex' &&
+                hexInspect.byteLength === 64 &&
+                hexInspect.format === 'raw-rs(64B)' &&
+                hexDiag.error !== null &&
+                hexDiag.error.code === PopCore.ERROR_CODES.INVALID_SIGNATURE_ENCODING &&
+                hexDiag.error.encoding === 'hex' &&
+                hexDiag.error.byteLength === 64 &&
+                ambig86Inspect.encoding === 'base64url' &&
+                ambig86Inspect.byteLength === 64 &&
+                ambig86Diag.error === null &&
+                ambig86Diag.firstFailedStage === 4 &&
+                ambig86Diag.stages[3].code === PopCore.STAGE_CODES.STAGE4_SIG_MISMATCH &&
+                ambig0xInspect.encoding === 'hex' &&
+                ambig0xInspect.byteLength === 43 &&
+                ambig0xDiag.error !== null &&
+                ambig0xDiag.error.code === PopCore.ERROR_CODES.INVALID_SIGNATURE_ENCODING &&
+                ambig0xDiag.error.encoding === 'hex' &&
+                ambig0xDiag.error.byteLength === 43 &&
+                ambig30Inspect.encoding === 'hex' &&
+                ambig30Inspect.byteLength === 43 &&
+                ambig30Diag.error !== null &&
+                ambig30Diag.error.code === PopCore.ERROR_CODES.INVALID_SIGNATURE_ENCODING &&
+                ambig30Diag.error.encoding === 'hex' &&
+                ambig30Diag.error.byteLength === 43
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] sig-encoding-hex-and-priority-unification: Hex 128-char or ambiguous priority mismatch between diagnose and inspectSignature");
+                failed++;
+            }
+        }
+
+        // 28) Base64url '=' padding rejection & standard Base64 fallback (deterministic alphanumeric signature without + or /)
+        {
+            const fixedAlnumPubkeyPem =
+                "-----BEGIN PUBLIC KEY-----\n" +
+                "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEP7uvaVeraWeOIDV4K7/Z/+RjtmlF\n" +
+                "FmdiKrNshwZyvSpbNX3ggco8hxZb4E/oOqw4GvosaOqlSigVnKnVmozQvw==\n" +
+                "-----END PUBLIC KEY-----";
+            // Valid 64B signature for POST https://api.example.com/v1/tx?b=2&a=1 (nonce=n123456, ts=1791356800) whose standard Base64 has no '+' or '/'
+            const paddedAlnumSig = "2Ay7MngNhRy9ajqfz4IpFr5MhUu2gwj7fk17r6ZV68obefYefbmM7phAt4ZZxeIW8Ho0RzszLFzcWsPzr2ypqQ==";
+            const unpaddedAlnumSig = paddedAlnumSig.slice(0, -2);
+            const validCase = fixtures.cases[0];
+
+            let b64UrlThrewOnPadding = false;
+            try {
+                PopCore.base64UrlDecode(paddedAlnumSig);
+            } catch (e) {
+                b64UrlThrewOnPadding = true;
+            }
+
+            const paddedInspect = inspectSignature(paddedAlnumSig);
+            const paddedDiag = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: baseBody,
+                nonce: validCase.nonce,
+                timestampStr: ts,
+                signature: paddedAlnumSig,
+                pubkeyPem: fixedAlnumPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${baseBodyHash}`
+            });
+
+            const unpaddedInspect = inspectSignature(unpaddedAlnumSig);
+            const unpaddedDiag = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: baseBody,
+                nonce: validCase.nonce,
+                timestampStr: ts,
+                signature: unpaddedAlnumSig,
+                pubkeyPem: fixedAlnumPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${baseBodyHash}`
+            });
+
+            const matchedHypId = paddedDiag.hypothesisResult &&
+                paddedDiag.hypothesisResult.type === 'found' &&
+                paddedDiag.hypothesisResult.sets[0] &&
+                paddedDiag.hypothesisResult.sets[0].item
+                ? paddedDiag.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            if (
+                b64UrlThrewOnPadding &&
+                paddedInspect.encoding === 'base64(standard)' &&
+                paddedInspect.byteLength === 64 &&
+                paddedInspect.encodingReason.includes('=') &&
+                paddedDiag.error === null &&
+                paddedDiag.firstFailedStage === 4 &&
+                matchedHypId === 'sig-base64url' &&
+                unpaddedInspect.ok === true &&
+                unpaddedInspect.encoding === 'base64url' &&
+                unpaddedDiag.error === null &&
+                unpaddedDiag.firstFailedStage === null
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] sig-encoding-base64url-padding-rejected: '=' padded signature without +,/ did not reject in base64UrlDecode or fall back to sig-base64url");
+                failed++;
+            }
+        }
+
+        // 29) PRIVATE KEY PEM input immediately rejected by both importPublicKey/diagnose and inspectPublicKey
+        {
+            const pkcs8PrivPem = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg\n-----END PRIVATE KEY-----";
+            const ecPrivPem = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEI\n-----END EC PRIVATE KEY-----";
+            const validCase = fixtures.cases[0];
+
+            let importPkcs8Err = null;
+            try {
+                await PopCore.importPublicKey(pkcs8PrivPem);
+            } catch (e) {
+                importPkcs8Err = e;
+            }
+
+            let importEcErr = null;
+            try {
+                await PopCore.importPublicKey(ecPrivPem);
+            } catch (e) {
+                importEcErr = e;
+            }
+
+            const diagPriv = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: validCase.body,
+                nonce: validCase.nonce,
+                timestampStr: String(validCase.timestamp),
+                signature: validCase.signature,
+                pubkeyPem: pkcs8PrivPem,
+                evalTime: validCase.evalTime,
+                reqDigest: validCase.digest
+            });
+            const inspectPriv = await inspectPublicKey(pkcs8PrivPem);
+            const inspectEcPriv = await inspectPublicKey(ecPrivPem);
+
+            if (
+                importPkcs8Err && importPkcs8Err.code === 'PRIVATE_KEY_REJECTED' &&
+                importEcErr && importEcErr.code === 'PRIVATE_KEY_REJECTED' &&
+                diagPriv.error && diagPriv.error.code === PopCore.ERROR_CODES.INVALID_PUBKEY &&
+                diagPriv.error.causeCode === 'PRIVATE_KEY_REJECTED' &&
+                inspectPriv.ok === false && inspectPriv.error && inspectPriv.error.code === 'PRIVATE_KEY_REJECTED' &&
+                inspectEcPriv.ok === false && inspectEcPriv.error && inspectEcPriv.error.code === 'PRIVATE_KEY_REJECTED'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] pubkey-private-key-rejected-both: PRIVATE KEY PEM was not rejected with PRIVATE_KEY_REJECTED in both modules");
+                failed++;
+            }
+        }
+
+        // 30) Reversed BEGIN/END PEM headers rejected by both importPublicKey/diagnose and inspectPublicKey
+        {
+            const cleanB64 = pubkeyPem
+                .replace('-----BEGIN PUBLIC KEY-----', '')
+                .replace('-----END PUBLIC KEY-----', '')
+                .trim();
+            const reversedPem = `-----END PUBLIC KEY-----\n${cleanB64}\n-----BEGIN PUBLIC KEY-----`;
+            const validCase = fixtures.cases[0];
+
+            let importRevErr = null;
+            try {
+                await PopCore.importPublicKey(reversedPem);
+            } catch (e) {
+                importRevErr = e;
+            }
+
+            const diagRev = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: validCase.body,
+                nonce: validCase.nonce,
+                timestampStr: String(validCase.timestamp),
+                signature: validCase.signature,
+                pubkeyPem: reversedPem,
+                evalTime: validCase.evalTime,
+                reqDigest: validCase.digest
+            });
+            const inspectRev = await inspectPublicKey(reversedPem);
+
+            if (
+                importRevErr && importRevErr.code === 'INVALID_PEM_FORMAT' &&
+                diagRev.error && diagRev.error.code === PopCore.ERROR_CODES.INVALID_PUBKEY &&
+                diagRev.error.causeCode === 'INVALID_PEM_FORMAT' &&
+                inspectRev.ok === false && inspectRev.error && inspectRev.error.code === 'INVALID_PEM_FORMAT'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] pubkey-reversed-headers-rejected-both: Reversed BEGIN/END PEM headers were not rejected by both modules");
+                failed++;
+            }
+        }
+
+        // 31) DER non-minimal integer encoding (e.g. 02 02 00 05) rejected by both derToRaw/diagnose and inspectSignature
+        {
+            // Case 1: 02 02 00 05 and 02 02 00 07 inside DER SEQUENCE (30 08 02 02 00 05 02 02 00 07)
+            const smallNonMinimalDer = new Uint8Array([0x30, 0x08, 0x02, 0x02, 0x00, 0x05, 0x02, 0x02, 0x00, 0x07]);
+            const smallNonMinimalB64Url = PopCore.base64UrlEncodeBytes(smallNonMinimalDer.buffer);
+            const smallRaw = PopCore.derToRaw(smallNonMinimalDer.buffer);
+            const smallInspect = inspectSignature(smallNonMinimalB64Url);
+
+            // Case 2: 72-byte DER signature for fixtures.cases[0] where s has 02 21 00 1e... (unnecessary leading 0x00 before 0x1e < 0x80)
+            const nonMinimal72B64Url = "MEYCIQDp8itqSFTHlK53le0AuRs2mihUOMX8c9KZBXZXpRsa_AIhAB548K8bBzfpaj9moQAACC2dB3nUhy0iI23oNDwXczPd";
+            const nonMinimal72Bytes = PopCore.base64UrlDecode(nonMinimal72B64Url);
+            const nonMinimal72Raw = PopCore.derToRaw(nonMinimal72Bytes);
+            const nonMinimal72Inspect = inspectSignature(nonMinimal72B64Url);
+            const validCase = fixtures.cases[0];
+            const nonMinimal72Diag = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: validCase.body,
+                nonce: validCase.nonce,
+                timestampStr: String(validCase.timestamp),
+                signature: nonMinimal72B64Url,
+                pubkeyPem,
+                evalTime: validCase.evalTime,
+                reqDigest: validCase.digest
+            });
+
+            if (
+                smallRaw === null &&
+                smallInspect.ok === false &&
+                smallInspect.error && smallInspect.error.code === 'INVALID_DER' &&
+                nonMinimal72Raw === null &&
+                nonMinimal72Inspect.ok === false &&
+                nonMinimal72Inspect.error && nonMinimal72Inspect.error.code === 'INVALID_DER' &&
+                nonMinimal72Diag.error === null &&
+                nonMinimal72Diag.firstFailedStage === 4 &&
+                nonMinimal72Diag.hypothesisResult &&
+                nonMinimal72Diag.hypothesisResult.type === 'no-match'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] der-non-minimal-integer-rejected-both: Non-minimal DER integer encoding was not rejected by both derToRaw/diagnose and inspectSignature");
+                failed++;
+            }
+        }
+
+        // 32) Non-Base64 chars (Korean/symbols) in PEM rejected by both modules, and generateKeyPairAndSign uses extractable: false
+        {
+            const cleanB64 = pubkeyPem
+                .replace('-----BEGIN PUBLIC KEY-----', '')
+                .replace('-----END PUBLIC KEY-----', '')
+                .trim();
+            const corruptedWithKoreanPem = `-----BEGIN PUBLIC KEY-----\n가나다!@#${cleanB64}\n-----END PUBLIC KEY-----`;
+            const validCase = fixtures.cases[0];
+
+            let importKorErr = null;
+            try {
+                await PopCore.importPublicKey(corruptedWithKoreanPem);
+            } catch (e) {
+                importKorErr = e;
+            }
+
+            const diagKor = await PopCore.diagnose({
+                method: validCase.method,
+                urlStr: `https://${validCase.host}${validCase.path}?${validCase.query}`,
+                bodyStr: validCase.body,
+                nonce: validCase.nonce,
+                timestampStr: String(validCase.timestamp),
+                signature: validCase.signature,
+                pubkeyPem: corruptedWithKoreanPem,
+                evalTime: validCase.evalTime,
+                reqDigest: validCase.digest
+            });
+            const inspectKor = await inspectPublicKey(corruptedWithKoreanPem);
+
+            let extractableFalseChecked = true;
+            const origGenKey = _crypto.subtle.generateKey.bind(_crypto.subtle);
+            let capturedExtractable = null;
+            _crypto.subtle.generateKey = async (alg, extractable, usages) => {
+                capturedExtractable = extractable;
+                return origGenKey(alg, extractable, usages);
+            };
+            try {
+                await PopCore.generateTestSignature({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: "{}",
+                    nonce: "n1",
+                    timestampStr: ts
+                });
+                extractableFalseChecked = capturedExtractable === false;
+            } finally {
+                _crypto.subtle.generateKey = origGenKey;
+            }
+
+            if (
+                importKorErr && importKorErr.code === 'INVALID_BASE64' &&
+                diagKor.error && diagKor.error.code === PopCore.ERROR_CODES.INVALID_PUBKEY &&
+                diagKor.error.causeCode === 'INVALID_BASE64' &&
+                inspectKor.ok === false && inspectKor.error && inspectKor.error.code === 'INVALID_BASE64' &&
+                extractableFalseChecked
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] pubkey-non-base64-chars-and-extractable: Non-Base64 chars in PEM were not rejected by both modules or generateKeyPairAndSign has extractable: true");
+                failed++;
+            }
+        }
+
+        // 33) BFS permutation & state deduplication spy test (0 duplicate verify calls, indistinguishable & sig-base64url+sig-der preserved)
+        {
+            const origVerify = _crypto.subtle.verify.bind(_crypto.subtle);
+            let verifyCallCount = 0;
+            let duplicateVerifyCount = 0;
+            const seenVerifyStates = new Set();
+
+            _crypto.subtle.verify = async (alg, key, sig, data) => {
+                verifyCallCount++;
+                const sigHex = PopCore.bytesToHex(sig);
+                const dataStr = new TextDecoder().decode(data);
+                const stateKey = `${sigHex}|${dataStr}`;
+                if (seenVerifyStates.has(stateKey)) {
+                    duplicateVerifyCount++;
+                } else {
+                    seenVerifyStates.add(stateKey);
+                }
+                return origVerify(alg, key, sig, data);
+            };
+
+            try {
+                // 1) outside-catalog (1 query param -> 5 active Stage 4 hypotheses: 1 initial + C(5,1)+C(5,2)+C(5,3) = 26 verify calls)
+                const outCase = fixtures.cases.find(x => x.name === 'outside-catalog');
+                verifyCallCount = 0;
+                duplicateVerifyCount = 0;
+                seenVerifyStates.clear();
+                await PopCore.diagnose({
+                    method: outCase.method,
+                    urlStr: `https://${outCase.host}${outCase.path}?${outCase.query}`,
+                    bodyStr: outCase.body,
+                    nonce: outCase.nonce,
+                    timestampStr: String(outCase.timestamp),
+                    signature: outCase.signature,
+                    pubkeyPem,
+                    evalTime: outCase.evalTime,
+                    reqDigest: outCase.digest
+                });
+                const outVerifyCount = verifyCallCount;
+                const outDupCount = duplicateVerifyCount;
+
+                // 2) Worst-case 3-query param input (?c=3&a=1&b=2 -> 7 active Stage 4 hypotheses: 1 initial + C(7,1)+C(7,2)+C(7,3) = 64 verify calls)
+                verifyCallCount = 0;
+                duplicateVerifyCount = 0;
+                seenVerifyStates.clear();
+                await PopCore.diagnose({
+                    method: outCase.method,
+                    urlStr: `https://${outCase.host}${outCase.path}?c=3&a=1&b=2`,
+                    bodyStr: outCase.body,
+                    nonce: outCase.nonce,
+                    timestampStr: String(outCase.timestamp),
+                    signature: outCase.signature,
+                    pubkeyPem,
+                    evalTime: outCase.evalTime,
+                    reqDigest: outCase.digest
+                });
+                const worstVerifyCount = verifyCallCount;
+                const worstDupCount = duplicateVerifyCount;
+
+                // 3) Indistinguishable case (query: b=2&a=1) preserves both query-sorted & query-reverse with 0 duplicate verify calls
+                const indCase = fixtures.cases.find(x => x.name === 'indistinguishable');
+                verifyCallCount = 0;
+                duplicateVerifyCount = 0;
+                seenVerifyStates.clear();
+                const indRes = await PopCore.diagnose({
+                    method: indCase.method,
+                    urlStr: `https://${indCase.host}${indCase.path}?${indCase.query}`,
+                    bodyStr: indCase.body,
+                    nonce: indCase.nonce,
+                    timestampStr: String(indCase.timestamp),
+                    signature: indCase.signature,
+                    pubkeyPem,
+                    evalTime: indCase.evalTime,
+                    reqDigest: indCase.digest
+                });
+                const indDupCount = duplicateVerifyCount;
+                const indSet = indRes.hypothesisResult && indRes.hypothesisResult.sets && indRes.hypothesisResult.sets[0];
+                const indIds = indSet && indSet.type === 'indistinguishable'
+                    ? indSet.items.map(it => it.idStr).sort().join('|')
+                    : '';
+
+                // 4) Order-dependent pair: sig-base64url + sig-der (DER signature encoded in standard Base64)
+                const derCase = fixtures.cases.find(x => x.name === 'sig-der');
+                const derBytes = PopCore.base64UrlDecode(derCase.signature);
+                const derStdB64 = toStandardBase64(derBytes); // ends with '=' so detected as base64(standard)
+                const derStdRes = await PopCore.diagnose({
+                    method: derCase.method,
+                    urlStr: `https://${derCase.host}${derCase.path}?${derCase.query}`,
+                    bodyStr: derCase.body,
+                    nonce: derCase.nonce,
+                    timestampStr: String(derCase.timestamp),
+                    signature: derStdB64,
+                    pubkeyPem,
+                    evalTime: derCase.evalTime,
+                    reqDigest: derCase.digest
+                });
+                const derStdIdStr = derStdRes.hypothesisResult &&
+                    derStdRes.hypothesisResult.type === 'found' &&
+                    derStdRes.hypothesisResult.sets[0] &&
+                    derStdRes.hypothesisResult.sets[0].item
+                    ? derStdRes.hypothesisResult.sets[0].item.idStr
+                    : null;
+
+                if (
+                    outDupCount === 0 &&
+                    outVerifyCount === 26 &&
+                    worstDupCount === 0 &&
+                    worstVerifyCount === 64 &&
+                    indDupCount === 0 &&
+                    indIds === 'query-reverse|query-sorted' &&
+                    derStdIdStr === 'sig-base64url,sig-der'
+                ) {
+                    passed++;
+                } else {
+                    console.log(`[FAIL] bfs-no-permutation-or-inverse-duplicates: outVerify=${outVerifyCount}(dup=${outDupCount}), worstVerify=${worstVerifyCount}(dup=${worstDupCount}), indIds=${indIds}(dup=${indDupCount}), derStdIdStr=${derStdIdStr}`);
+                    failed++;
+                }
+            } finally {
+                _crypto.subtle.verify = origVerify;
+            }
+        }
+
+        // 34) Inverse pair exclusion & reachable maxSearchNodes (reduced: true) test
+        {
+            const mCase = fixtures.cases.find(x => x.name === 'method-lowercase');
+            const mRes = await PopCore.diagnose({
+                method: mCase.method,
+                urlStr: `https://${mCase.host}${mCase.path}?${mCase.query}`,
+                bodyStr: mCase.body,
+                nonce: mCase.nonce,
+                timestampStr: String(mCase.timestamp),
+                signature: mCase.signature,
+                pubkeyPem,
+                evalTime: mCase.evalTime,
+                reqDigest: mCase.digest
+            });
+            const hasInverseNoise = mRes.hypothesisResult &&
+                mRes.hypothesisResult.sets &&
+                mRes.hypothesisResult.sets.some(s => {
+                    const items = s.type === 'indistinguishable' ? s.items : [s.item];
+                    return items.some(it => it.idStr.includes('path-trailing-slash-add') || it.idStr.includes('path-trailing-slash-remove'));
+                });
+
+            // Force reduced: true using a small maxSearchNodes cap (5 verify calls)
+            const outCase = fixtures.cases.find(x => x.name === 'outside-catalog');
+            const origVerify = _crypto.subtle.verify.bind(_crypto.subtle);
+            let cappedVerifyCalls = 0;
+            _crypto.subtle.verify = async (...args) => {
+                cappedVerifyCalls++;
+                return origVerify(...args);
+            };
+            let cappedRes;
+            try {
+                const cappedProfile = Object.assign({}, PopCore.PaperProfile, { maxSearchNodes: 5 });
+                cappedRes = await PopCore.diagnose({
+                    method: outCase.method,
+                    urlStr: `https://${outCase.host}${outCase.path}?${outCase.query}`,
+                    bodyStr: outCase.body,
+                    nonce: outCase.nonce,
+                    timestampStr: String(outCase.timestamp),
+                    signature: outCase.signature,
+                    pubkeyPem,
+                    evalTime: outCase.evalTime,
+                    reqDigest: outCase.digest
+                }, cappedProfile);
+            } finally {
+                _crypto.subtle.verify = origVerify;
+            }
+
+            let renderedReducedMsg = false;
+            if (typeof window === 'undefined') {
+                const mockPanel = createMockNode('div');
+                const prevDoc = global.document;
+                global.document = {
+                    getElementById(id) { return id === 'result-panel' ? mockPanel : null; },
+                    createElement(tag) { return createMockNode(tag.toUpperCase()); },
+                    createTextNode(text) {
+                        const node = createMockNode('#text');
+                        node._text = String(text ?? '');
+                        return node;
+                    }
+                };
+                try {
+                    renderResult(cappedRes);
+                    renderedReducedMsg = mockPanel.textContent.includes('탐색 범위를 줄였음 (최대 탐색 상한 도달)');
+                } finally {
+                    global.document = prevDoc;
+                }
+            } else {
+                const hBox = PopUI.renderHypothesisSection(cappedRes);
+                renderedReducedMsg = Boolean(hBox && hBox.textContent.includes('탐색 범위를 줄였음 (최대 탐색 상한 도달)'));
+            }
+
+            if (
+                !hasInverseNoise &&
+                mRes.hypothesisResult.sets.length === 1 &&
+                mRes.hypothesisResult.sets[0].item.idStr === 'method-lowercase' &&
+                cappedRes.hypothesisResult &&
+                cappedRes.hypothesisResult.reduced === true &&
+                cappedVerifyCalls === 6 && // 1 in Stage 4 + 5 in searchStage4Hypotheses
+                renderedReducedMsg
+            ) {
+                passed++;
+            } else {
+                console.log(`[FAIL] bfs-inverse-and-reduced-cap: hasInverseNoise=${hasInverseNoise}, reduced=${cappedRes.hypothesisResult && cappedRes.hypothesisResult.reduced}, cappedVerifyCalls=${cappedVerifyCalls}, renderedReducedMsg=${renderedReducedMsg}`);
+                failed++;
+            }
+        }
+
+        // 35) Stage 5 combo search (depth 2~3, e.g. body-bom-added + digest-hex) & simultaneous Stage 4 + Stage 5 failure diagnosis
+        {
+            // 1) Stage 5 depth-2 combo: body-bom-added + digest-hex (Stage 4 passes, Stage 5 fails)
+            const bomUpperDigest = bomBodyHash.toUpperCase();
+            const s5Combo2Canonical = ["POST", "api.example.com", "/v1/tx", "a=1", bomUpperDigest, nonce, ts].join('\n');
+            const s5Combo2Sig = toBase64Url(await signRaw(s5Combo2Canonical));
+            const s5Combo2Res = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: s5Combo2Sig,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${bomUpperDigest}`
+            });
+            const s5Combo2Id = s5Combo2Res.hypothesisResult &&
+                s5Combo2Res.hypothesisResult.type === 'found' &&
+                s5Combo2Res.hypothesisResult.sets[0] &&
+                s5Combo2Res.hypothesisResult.sets[0].item
+                ? s5Combo2Res.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            // 2) Stage 5 depth-3 combo: newline-crlf + body-bom-added + digest-hex (Stage 4 passes, Stage 5 fails)
+            const crlfBomUpperDigest = bomCrlfBodyHash.toUpperCase();
+            const s5Combo3Canonical = ["POST", "api.example.com", "/v1/tx", "a=1", crlfBomUpperDigest, nonce, ts].join('\n');
+            const s5Combo3Sig = toBase64Url(await signRaw(s5Combo3Canonical));
+            const s5Combo3Res = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: s5Combo3Sig,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${crlfBomUpperDigest}`
+            });
+            const s5Combo3Id = s5Combo3Res.hypothesisResult &&
+                s5Combo3Res.hypothesisResult.type === 'found' &&
+                s5Combo3Res.hypothesisResult.sets[0] &&
+                s5Combo3Res.hypothesisResult.sets[0].item
+                ? s5Combo3Res.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            // 3) Simultaneous Stage 4 (method-lowercase) + Stage 5 (body-bom-added + digest-hex) failure
+            const simS4S5Canonical = ["post", "api.example.com", "/v1/tx", "a=1", bomUpperDigest, nonce, ts].join('\n');
+            const simS4S5Sig = toBase64Url(await signRaw(simS4S5Canonical));
+            const simS4S5Res = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: simS4S5Sig,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${bomUpperDigest}`
+            });
+            const s4SubId = simS4S5Res.stage4HypothesisResult &&
+                simS4S5Res.stage4HypothesisResult.type === 'found' &&
+                simS4S5Res.stage4HypothesisResult.sets[0] &&
+                simS4S5Res.stage4HypothesisResult.sets[0].item
+                ? simS4S5Res.stage4HypothesisResult.sets[0].item.idStr
+                : null;
+            const s5SubId = simS4S5Res.stage5HypothesisResult &&
+                simS4S5Res.stage5HypothesisResult.type === 'found' &&
+                simS4S5Res.stage5HypothesisResult.sets[0] &&
+                simS4S5Res.stage5HypothesisResult.sets[0].item
+                ? simS4S5Res.stage5HypothesisResult.sets[0].item.idStr
+                : null;
+            const combinedId = simS4S5Res.hypothesisResult &&
+                simS4S5Res.hypothesisResult.type === 'found' &&
+                simS4S5Res.hypothesisResult.sets[0] &&
+                simS4S5Res.hypothesisResult.sets[0].item
+                ? simS4S5Res.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            if (
+                s5Combo2Res.firstFailedStage === 5 &&
+                s5Combo2Id === 'body-bom-added,digest-hex' &&
+                s5Combo3Res.firstFailedStage === 5 &&
+                s5Combo3Id === 'body-bom-added,digest-hex,newline-crlf' &&
+                simS4S5Res.firstFailedStage === 4 &&
+                simS4S5Res.stages[3].status === 'fail' &&
+                simS4S5Res.stages[4].status === 'fail' &&
+                s4SubId === 'method-lowercase' &&
+                s5SubId === 'body-bom-added,digest-hex' &&
+                combinedId === 'body-bom-added,digest-hex,method-lowercase'
+            ) {
+                passed++;
+            } else {
+                console.log(`[FAIL] stage5-combo-and-simultaneous-s4-s5: s5Combo2Id=${s5Combo2Id}, s5Combo3Id=${s5Combo3Id}, s4SubId=${s4SubId}, s5SubId=${s5SubId}, combinedId=${combinedId}`);
+                failed++;
+            }
+        }
+
+        // 36) Host port (:443 preservation & toggle, custom :8443 untouched, IPv6 [::1] and [::1]:8443 intact)
+        {
+            const hostHyp = PopCore.HYPOTHESES.find(h => h.id === 'host-rewritten');
+            const bodyHash = baseBodyHash;
+            const reqDigest = `sha256=${bodyHash}`;
+
+            // (1) Request to https://api.example.com:443/p, client signed without port (api.example.com)
+            const canonicalWithout443 = ["POST", "api.example.com", "/p", "", bodyHash, nonce, ts].join('\n');
+            const sigWithout443 = toBase64Url(await signRaw(canonicalWithout443));
+            const resReqWith443 = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com:443/p",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigWithout443,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest
+            });
+            const reqWith443Id = resReqWith443.hypothesisResult &&
+                resReqWith443.hypothesisResult.type === 'found' &&
+                resReqWith443.hypothesisResult.sets[0] &&
+                resReqWith443.hypothesisResult.sets[0].item
+                ? resReqWith443.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            // (2) Request to https://api.example.com/p, client signed with :443 (api.example.com:443)
+            const canonicalWith443 = ["POST", "api.example.com:443", "/p", "", bodyHash, nonce, ts].join('\n');
+            const sigWith443 = toBase64Url(await signRaw(canonicalWith443));
+            const resReqWithout443 = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/p",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigWith443,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest
+            });
+            const reqWithout443Id = resReqWithout443.hypothesisResult &&
+                resReqWithout443.hypothesisResult.type === 'found' &&
+                resReqWithout443.hypothesisResult.sets[0] &&
+                resReqWithout443.hypothesisResult.sets[0].item
+                ? resReqWithout443.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            // (3) https://api.example.com:8443/p (custom port never modified by host-rewritten)
+            const customPortApplied = await hostHyp.apply({ host: 'api.example.com:8443' });
+            const canonical8443 = ["POST", "api.example.com:8443", "/p", "", bodyHash, nonce, ts].join('\n');
+            const sig8443 = toBase64Url(await signRaw(canonical8443));
+            const res8443Pass = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com:8443/p",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: sig8443,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest
+            });
+            // If client signed without :8443, host-rewritten must NOT strip :8443 to match it
+            const res8443NoMatch = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com:8443/p",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigWithout443,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest
+            });
+
+            // (4) https://[::1]/p and https://[::1]:8443/p (IPv6 host never broken)
+            const ipv6Applied = await hostHyp.apply({ host: '[::1]' });
+            const ipv6PortApplied = await hostHyp.apply({ host: '[::1]:8443' });
+
+            const canonicalIpv6 = ["POST", "[::1]", "/p", "", bodyHash, nonce, ts].join('\n');
+            const sigIpv6 = toBase64Url(await signRaw(canonicalIpv6));
+            const resIpv6Pass = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://[::1]/p",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigIpv6,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest
+            });
+
+            const canonicalIpv6LowerMethod = ["post", "[::1]:8443", "/p", "", bodyHash, nonce, ts].join('\n');
+            const sigIpv6LowerMethod = toBase64Url(await signRaw(canonicalIpv6LowerMethod));
+            const resIpv6PortDiag = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://[::1]:8443/p",
+                bodyStr: baseBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigIpv6LowerMethod,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest
+            });
+            const ipv6PortDiagId = resIpv6PortDiag.hypothesisResult &&
+                resIpv6PortDiag.hypothesisResult.type === 'found' &&
+                resIpv6PortDiag.hypothesisResult.sets[0] &&
+                resIpv6PortDiag.hypothesisResult.sets[0].item
+                ? resIpv6PortDiag.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            if (
+                resReqWith443.firstFailedStage === 4 &&
+                resReqWith443.expectedCanonical.split('\n')[1] === 'api.example.com:443' &&
+                reqWith443Id === 'host-rewritten' &&
+                resReqWithout443.firstFailedStage === 4 &&
+                resReqWithout443.expectedCanonical.split('\n')[1] === 'api.example.com' &&
+                reqWithout443Id === 'host-rewritten' &&
+                customPortApplied.host === 'api.example.com:8443' &&
+                res8443Pass.firstFailedStage === null &&
+                res8443Pass.expectedCanonical.split('\n')[1] === 'api.example.com:8443' &&
+                res8443NoMatch.firstFailedStage === 4 &&
+                res8443NoMatch.hypothesisResult.type === 'no-match' &&
+                ipv6Applied.host === '[::1]' &&
+                ipv6PortApplied.host === '[::1]:8443' &&
+                resIpv6Pass.firstFailedStage === null &&
+                resIpv6Pass.expectedCanonical.split('\n')[1] === '[::1]' &&
+                resIpv6PortDiag.firstFailedStage === 4 &&
+                resIpv6PortDiag.expectedCanonical.split('\n')[1] === '[::1]:8443' &&
+                ipv6PortDiagId === 'method-lowercase'
+            ) {
+                passed++;
+            } else {
+                console.log(`[FAIL] host-rewritten-port-and-ipv6: reqWith443Id=${reqWith443Id} (stage=${resReqWith443.firstFailedStage}, host=${resReqWith443.expectedCanonical && resReqWith443.expectedCanonical.split('\n')[1]}), reqWithout443Id=${reqWithout443Id}, customPortHost=${customPortApplied.host}, res8443NoMatch=${res8443NoMatch.hypothesisResult && res8443NoMatch.hypothesisResult.type}, ipv6Host=${ipv6Applied.host}, ipv6PortHost=${ipv6PortApplied.host}, ipv6PortDiagId=${ipv6PortDiagId}`);
+                failed++;
+            }
+        }
+
+        // 37) Stage 5 newline-crlf bidirectional toggle: (a) LF hash + CRLF body, (b) CRLF hash + LF body, (c) both match (LF+LF and CRLF+CRLF)
+        {
+            const lfBody = '{\n  "amount": 1000,\n  "to": "alice"\n}';
+            const crlfBody = '{\r\n  "amount": 1000,\r\n  "to": "alice"\r\n}';
+            const lfHash = baseBodyHash;
+            const crlfHash = crlfBodyHash;
+
+            const sigWithLfHash = toBase64Url(await signRaw(["POST", "api.example.com", "/v1/tx", "a=1", lfHash, nonce, ts].join('\n')));
+            const sigWithCrlfHash = toBase64Url(await signRaw(["POST", "api.example.com", "/v1/tx", "a=1", crlfHash, nonce, ts].join('\n')));
+
+            // (a) LF hash + CRLF body -> Stage 5 fails and matches newline-crlf
+            const resLfHashCrlfBody = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: crlfBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigWithLfHash,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${lfHash}`
+            });
+            const idLfHashCrlfBody = resLfHashCrlfBody.hypothesisResult &&
+                resLfHashCrlfBody.hypothesisResult.type === 'found' &&
+                resLfHashCrlfBody.hypothesisResult.sets[0] &&
+                resLfHashCrlfBody.hypothesisResult.sets[0].item
+                ? resLfHashCrlfBody.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            // (b) CRLF hash + LF body -> Stage 5 fails and matches newline-crlf
+            const resCrlfHashLfBody = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: lfBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigWithCrlfHash,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${crlfHash}`
+            });
+            const idCrlfHashLfBody = resCrlfHashLfBody.hypothesisResult &&
+                resCrlfHashLfBody.hypothesisResult.type === 'found' &&
+                resCrlfHashLfBody.hypothesisResult.sets[0] &&
+                resCrlfHashLfBody.hypothesisResult.sets[0].item
+                ? resCrlfHashLfBody.hypothesisResult.sets[0].item.idStr
+                : null;
+
+            // (c-1) Both match: LF hash + LF body -> passes all stages (skipped)
+            const resBothLf = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: lfBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigWithLfHash,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${lfHash}`
+            });
+
+            // (c-2) Both match: CRLF hash + CRLF body -> passes all stages (skipped)
+            const resBothCrlf = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx?a=1",
+                bodyStr: crlfBody,
+                nonce,
+                timestampStr: ts,
+                signature: sigWithCrlfHash,
+                pubkeyPem: dynPubkeyPem,
+                evalTime: Number(ts),
+                reqDigest: `sha256=${crlfHash}`
+            });
+
+            // (d) Browser <textarea> LF normalization simulation + CRLF preservation via setRawTextareaValue/readRequestBody & UI notice
+            const mockTextarea = {
+                _normalizedVal: '',
+                get value() { return this._normalizedVal; },
+                set value(v) { this._normalizedVal = String(v ?? '').replace(/\r\n/g, '\n'); }
+            };
+            PopUI.setRawTextareaValue(mockTextarea, crlfBody);
+            const normalizedDomVal = mockTextarea.value;
+            const preservedCrlfRead = PopUI.readRequestBody(mockTextarea);
+            mockTextarea.value = '{"edited": true}\n';
+            const editedRead = PopUI.readRequestBody(mockTextarea);
+
+            let hasLfNotice = false;
+            const parsedAnsiCrlf = parseCurl(
+                "curl 'https://api.example.com/v1/tx?a=1' " +
+                "-H 'X-FIDO2-Nonce: n1' -H 'X-FIDO2-Timestamp: 1700000000' " +
+                "-H 'X-FIDO2-Signature: s1' -H 'X-Body-Digest: sha256=ab' " +
+                "--data-raw $'{\\r\\n  \"amount\": 1000\\r\\n}'"
+            );
+            if (typeof window === 'undefined') {
+                const prevDoc = global.document;
+                const createSimpleNode = (tag) => ({
+                    tagName: tag,
+                    className: '',
+                    classList: { remove() {}, add() {} },
+                    children: [],
+                    _text: '',
+                    get textContent() { return this._text + this.children.map(c => c.textContent).join(''); },
+                    set textContent(v) { this._text = String(v ?? ''); this.children = []; },
+                    appendChild(ch) { this.children.push(ch); return ch; }
+                });
+                global.document = {
+                    createElement: (t) => createSimpleNode(t.toUpperCase()),
+                    createTextNode: (txt) => { const n = createSimpleNode('#text'); n._text = String(txt ?? ''); return n; }
+                };
+                try {
+                    const bannerNode = createSimpleNode('DIV');
+                    PopUI.renderImportStatus(bannerNode, parsedAnsiCrlf);
+                    hasLfNotice =
+                        parsedAnsiCrlf.inputs.bodyStr === '{\r\n  "amount": 1000\r\n}' &&
+                        bannerNode.textContent.includes('브라우저 입력창(textarea)은 HTML 표준에 따라');
+                } finally {
+                    global.document = prevDoc;
+                }
+            } else {
+                const bannerNode = document.createElement('div');
+                PopUI.renderImportStatus(bannerNode, parsedAnsiCrlf);
+                hasLfNotice =
+                    parsedAnsiCrlf.inputs.bodyStr === '{\r\n  "amount": 1000\r\n}' &&
+                    bannerNode.textContent.includes('브라우저 입력창(textarea)은 HTML 표준에 따라');
+            }
+
+            if (
+                resLfHashCrlfBody.firstFailedStage === 5 &&
+                idLfHashCrlfBody === 'newline-crlf' &&
+                resCrlfHashLfBody.firstFailedStage === 5 &&
+                idCrlfHashLfBody === 'newline-crlf' &&
+                resBothLf.firstFailedStage === null &&
+                resBothLf.hypothesisResult.type === 'skipped' &&
+                resBothCrlf.firstFailedStage === null &&
+                resBothCrlf.hypothesisResult.type === 'skipped' &&
+                normalizedDomVal === lfBody &&
+                preservedCrlfRead === crlfBody &&
+                editedRead === '{"edited": true}\n' &&
+                hasLfNotice
+            ) {
+                passed++;
+            } else {
+                console.log(`[FAIL] newline-crlf-bidirectional: (a) stage=${resLfHashCrlfBody.firstFailedStage} id=${idLfHashCrlfBody}, (b) stage=${resCrlfHashLfBody.firstFailedStage} id=${idCrlfHashLfBody}, (c-1) stage=${resBothLf.firstFailedStage}, (c-2) stage=${resBothCrlf.firstFailedStage}, preserved=${preservedCrlfRead === crlfBody}, hasLfNotice=${hasLfNotice}`);
+                failed++;
+            }
+        }
+
+        // 38) Module boundaries (core -> ui 0 refs), jsonError data/UI split, PopCore explicit public API, slots explicit require, and fixtures/samples separation
+        {
+            // (a) PopCore explicit public API: no internal helpers (_atob, _btoa, _crypto, binaryStringToBytes) or UI functions (getJsonErrorSnippet, isFullWidthChar)
+            const noInternalLeak =
+                PopCore._atob === undefined &&
+                PopCore._btoa === undefined &&
+                PopCore._crypto === undefined &&
+                PopCore.binaryStringToBytes === undefined &&
+                PopCore.getJsonErrorSnippet === undefined &&
+                PopCore.isFullWidthChar === undefined;
+
+            // (b) Core jsonError vs UI jsonError responsibility split
+            const coreHasJsonLoc =
+                typeof PopCore.extractJsonErrorLocation === 'function' &&
+                typeof PopCore.detectJsonErrorHint === 'function' &&
+                typeof PopCore.JSON_HINT_CODES === 'object';
+            const uiHasJsonFormat =
+                typeof PopUI.formatJsonErrorSnippet === 'function' &&
+                typeof PopUI.getJsonErrorSnippet === 'function' &&
+                typeof PopUI.isFullWidthChar === 'function';
+
+            let jsonSplitOk = false;
+            if (coreHasJsonLoc && uiHasJsonFormat) {
+                const brokenKorJson = '{\n  "이름": "홍길동",\n  "amount": 1000,\n}';
+                let errMsg = 'Unexpected token } in JSON at position 35';
+                try {
+                    JSON.parse(brokenKorJson);
+                } catch (e) {
+                    errMsg = e.message;
+                }
+                const loc = PopCore.extractJsonErrorLocation(brokenKorJson, errMsg);
+                const formatted = PopUI.formatJsonErrorSnippet(loc);
+                const validated = PopCore.validateJsonBody(brokenKorJson);
+                jsonSplitOk =
+                    loc &&
+                    typeof loc.line === 'number' &&
+                    typeof loc.column === 'number' &&
+                    typeof loc.problemLine === 'string' &&
+                    !String(loc.problemLine).includes('▲') &&
+                    typeof formatted === 'string' &&
+                    formatted.includes('▲') &&
+                    validated !== null &&
+                    typeof validated.line === 'number' &&
+                    typeof validated.column === 'number' &&
+                    typeof validated.problemLine === 'string' &&
+                    !String(validated.detail).includes('▲') &&
+                    PopUI.formatJsonErrorSnippet(validated).includes('▲');
+            }
+
+            // (c) Operational samples module (PopUI.DEMO_SAMPLES)
+            const samplesOk =
+                PopUI.DEMO_SAMPLES &&
+                typeof PopUI.DEMO_SAMPLES.public_key === 'string' &&
+                Array.isArray(PopUI.DEMO_SAMPLES.cases) &&
+                PopUI.DEMO_SAMPLES.cases.length >= 7;
+
+            // (d) Node-specific static & module checks: 0 core->ui refs, index.html script tags, fixtures.js UMD, slots.js resetInspector in Node
+            let nodeChecksOk = true;
+            if (typeof window === 'undefined') {
+                const fs = require('fs');
+                const path = require('path');
+                const rootDir = path.join(__dirname, '..');
+
+                // Check all files in js/core/** for any reference to ../ui, js/ui, or PopUI
+                const coreDir = path.join(rootDir, 'js', 'core');
+                const listJsFiles = (dir) => {
+                    let results = [];
+                    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                        const full = path.join(dir, entry.name);
+                        if (entry.isDirectory()) results = results.concat(listJsFiles(full));
+                        else if (entry.name.endsWith('.js')) results.push(full);
+                    }
+                    return results;
+                };
+                const coreFiles = listJsFiles(coreDir);
+                const hasCoreJsonErrorFile = fs.existsSync(path.join(coreDir, 'jsonError.js'));
+                const hasUiSamplesFile = fs.existsSync(path.join(rootDir, 'js', 'ui', 'samples.js'));
+                let coreUiRefCount = 0;
+                for (const f of coreFiles) {
+                    const content = fs.readFileSync(f, 'utf8');
+                    if (/(\.\.\/ui\/|js\/ui\/|\bPopUI\b)/.test(content)) {
+                        coreUiRefCount++;
+                    }
+                }
+
+                // Check index.html does not load test/fixtures/fixtures.js and loads js/ui/samples.js & js/core/jsonError.js
+                const indexHtml = fs.readFileSync(path.join(rootDir, 'index.html'), 'utf8');
+                const indexNoTestFixtures = !indexHtml.includes('test/fixtures/fixtures.js');
+                const indexLoadsSamples = indexHtml.includes('js/ui/samples.js');
+                const indexLoadsCoreJsonError = indexHtml.includes('js/core/jsonError.js');
+
+                // Check test/fixtures/fixtures.js uses UMD and does not have top-level `const FIXTURES`
+                const fixturesSrc = fs.readFileSync(path.join(rootDir, 'test', 'fixtures', 'fixtures.js'), 'utf8');
+                const fixturesIsUmd = !/^const\s+FIXTURES\s*=/m.test(fixturesSrc) && fixturesSrc.includes('module.exports');
+
+                // Check slots.js explicitly requires ./inspector.js and invokes resetInspector() when loading a slot in Node
+                const slotsSrc = fs.readFileSync(path.join(rootDir, 'js', 'ui', 'slots.js'), 'utf8');
+                const slotsRequiresInspector = slotsSrc.includes("require('./inspector.js')");
+
+                const inspectorMod = require('../js/ui/inspector.js');
+                const renderMod = require('../js/ui/render.js');
+                let resetInspectorCalledOnSlotLoad = false;
+                const origResetInspector = inspectorMod.resetInspector;
+                const origShowToast = renderMod.showToast;
+                const prevDoc = global.document;
+                const prevStorage = global.localStorage;
+                try {
+                    inspectorMod.resetInspector = () => { resetInspectorCalledOnSlotLoad = true; };
+                    renderMod.showToast = () => {};
+                    global.localStorage = {
+                        getItem() { return JSON.stringify({ slot_1: { time: '12:00:00', method: 'POST' } }); },
+                        setItem() {}
+                    };
+                    const makeEl = (tag) => ({
+                        tagName: tag,
+                        className: '',
+                        value: '',
+                        children: [],
+                        listeners: {},
+                        classList: { add() {}, remove() {} },
+                        setAttribute() {},
+                        remove() {},
+                        addEventListener(ev, fn) { this.listeners[ev] = fn; },
+                        appendChild(ch) { this.children.push(ch); return ch; }
+                    });
+                    const containerEl = makeEl('DIV');
+                    const panelEl = makeEl('DIV');
+                    global.document = {
+                        body: makeEl('BODY'),
+                        getElementById(id) {
+                            if (id === 'memory-slots-container') return containerEl;
+                            if (id === 'result-panel') return panelEl;
+                            return makeEl('INPUT');
+                        },
+                        createElement(tag) { return makeEl(tag.toUpperCase()); },
+                        createTextNode(txt) { const n = makeEl('#text'); n.textContent = txt; return n; }
+                    };
+                    PopUI.initMemorySlots();
+                    const firstSlotDiv = containerEl.children[0];
+                    const loadBtn = firstSlotDiv && firstSlotDiv.children.find(b => b.className.includes('btn-slot-load'));
+                    if (loadBtn && loadBtn.listeners.click) {
+                        loadBtn.listeners.click();
+                    }
+                } finally {
+                    inspectorMod.resetInspector = origResetInspector;
+                    renderMod.showToast = origShowToast;
+                    global.document = prevDoc;
+                    global.localStorage = prevStorage;
+                }
+
+                nodeChecksOk =
+                    hasCoreJsonErrorFile &&
+                    hasUiSamplesFile &&
+                    coreUiRefCount === 0 &&
+                    indexNoTestFixtures &&
+                    indexLoadsSamples &&
+                    indexLoadsCoreJsonError &&
+                    fixturesIsUmd &&
+                    slotsRequiresInspector &&
+                    resetInspectorCalledOnSlotLoad;
+            }
+
+            if (noInternalLeak && coreHasJsonLoc && uiHasJsonFormat && jsonSplitOk && samplesOk && nodeChecksOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] architecture-module-boundaries-and-api: noInternalLeak=${noInternalLeak}, coreHasJsonLoc=${coreHasJsonLoc}, uiHasJsonFormat=${uiHasJsonFormat}, jsonSplitOk=${jsonSplitOk}, samplesOk=${samplesOk}, nodeChecksOk=${nodeChecksOk}`);
+                failed++;
+            }
+        }
+
+        // 39) UI rendering: multiple sets (sets[0..n]), indistinguishable candidate guides with ID deduplication, diff-row actual/expected classes, and simultaneous Stage 4 + 5 failure display
+        {
+            const qSortedHyp = PopCore.HYPOTHESES.find(h => h.id === 'query-sorted');
+            const qRevHyp = PopCore.HYPOTHESES.find(h => h.id === 'query-reverse');
+            const mLowerHyp = PopCore.HYPOTHESES.find(h => h.id === 'method-lowercase');
+
+            let renderSpyInnerHtmlUsed = false;
+            const makeDomNode = (tag) => ({
+                tagName: tag,
+                className: '',
+                children: [],
+                _text: '',
+                classList: { add() {}, remove() {} },
+                setAttribute() {},
+                get textContent() {
+                    return this._text + this.children.map(c => c.textContent).join('');
+                },
+                set textContent(val) {
+                    this._text = String(val ?? '');
+                    this.children = [];
+                },
+                set innerHTML(_val) {
+                    renderSpyInnerHtmlUsed = true;
+                },
+                appendChild(child) {
+                    this.children.push(child);
+                    return child;
+                }
+            });
+
+            const findNodesByClass = (root, cls) => {
+                let out = [];
+                const classes = String(root.className || '').split(/\s+/);
+                if (classes.includes(cls)) out.push(root);
+                const children = root.children ? Array.from(root.children) : [];
+                for (const ch of children) {
+                    out = out.concat(findNodesByClass(ch, cls));
+                }
+                return out;
+            };
+
+            let mockPanel;
+            let prevDoc;
+            let createdBrowserPanel = false;
+            if (typeof window === 'undefined') {
+                mockPanel = makeDomNode('DIV');
+                prevDoc = global.document;
+                global.document = {
+                    getElementById(id) { return id === 'result-panel' ? mockPanel : null; },
+                    createElement(tag) { return makeDomNode(tag.toUpperCase()); },
+                    createTextNode(text) {
+                        const n = makeDomNode('#text');
+                        n._text = String(text ?? '');
+                        return n;
+                    }
+                };
+            } else {
+                mockPanel = document.getElementById('result-panel');
+                if (!mockPanel) {
+                    mockPanel = document.createElement('div');
+                    mockPanel.id = 'result-panel';
+                    mockPanel.className = 'hidden';
+                    document.body.appendChild(mockPanel);
+                    createdBrowserPanel = true;
+                }
+            }
+
+            let multiSetsOk = false;
+            let indistGuidesOk = false;
+            let diffClassOk = false;
+            let bothFailRenderOk = false;
+
+            try {
+                // (a) Multiple sets in hRes.sets (sets[0] and sets[1] must both be rendered)
+                const multiSetResult = {
+                    stages: [
+                        { name: '1단계', status: 'pass' },
+                        { name: '2단계', status: 'pass' },
+                        { name: '3단계', status: 'unknown' },
+                        { name: '4단계', status: 'fail', reason: '서명 불일치' },
+                        { name: '5단계', status: 'pass' }
+                    ],
+                    warnings: [],
+                    error: null,
+                    firstFailedStage: 4,
+                    expectedCanonical: 'POST\napi.example.com\n/v1/tx\nb=2&a=1\nhash\nn1\n1700000000',
+                    hypothesisResult: {
+                        type: 'found',
+                        reduced: false,
+                        sets: [
+                            {
+                                type: 'match',
+                                item: { history: [qSortedHyp], idStr: 'query-sorted' },
+                                canonical: 'POST\napi.example.com\n/v1/tx\na=1&b=2\nhash\nn1\n1700000000'
+                            },
+                            {
+                                type: 'match',
+                                item: { history: [mLowerHyp], idStr: 'method-lowercase' },
+                                canonical: 'post\napi.example.com\n/v1/tx\nb=2&a=1\nhash\nn1\n1700000000'
+                            }
+                        ]
+                    }
+                };
+                PopUI.renderResult(multiSetResult);
+                const multiText = mockPanel.textContent;
+                multiSetsOk =
+                    multiText.includes(qSortedHyp.label) &&
+                    multiText.includes(mLowerHyp.label) &&
+                    multiText.includes(qSortedHyp.solution) &&
+                    multiText.includes(mLowerHyp.solution);
+
+                // (b) Indistinguishable set with shared + distinct hypothesis IDs: all candidate guides rendered, duplicate IDs deduplicated
+                const indistComboResult = {
+                    stages: multiSetResult.stages,
+                    warnings: [],
+                    error: null,
+                    firstFailedStage: 4,
+                    expectedCanonical: 'POST\napi.example.com\n/v1/tx\nb=2&a=1\nhash\nn1\n1700000000',
+                    hypothesisResult: {
+                        type: 'found',
+                        reduced: false,
+                        sets: [
+                            {
+                                type: 'indistinguishable',
+                                canonical: 'post\napi.example.com\n/v1/tx\na=1&b=2\nhash\nn1\n1700000000',
+                                items: [
+                                    { history: [mLowerHyp, qSortedHyp], idStr: 'method-lowercase,query-sorted' },
+                                    { history: [mLowerHyp, qRevHyp], idStr: 'method-lowercase,query-reverse' }
+                                ]
+                            }
+                        ]
+                    }
+                };
+                PopUI.renderResult(indistComboResult);
+                const guideTitles = findNodesByClass(mockPanel, 'guide-item-title').map(n => n.textContent);
+                indistGuidesOk =
+                    guideTitles.length === 3 &&
+                    guideTitles.some(t => t.includes(mLowerHyp.label)) &&
+                    guideTitles.some(t => t.includes(qSortedHyp.label)) &&
+                    guideTitles.some(t => t.includes(qRevHyp.label)) &&
+                    mockPanel.textContent.includes(qRevHyp.cause) &&
+                    mockPanel.textContent.includes(qRevHyp.solution);
+
+                // (c) Diff row classes: client signed value (actualCanonical) -> 'diff-row actual', gateway expected (expectedCanonical) -> 'diff-row expected'
+                const actualRows = findNodesByClass(mockPanel, 'diff-row').filter(n => n.className === 'diff-row actual');
+                const expectedRows = findNodesByClass(mockPanel, 'diff-row').filter(n => n.className === 'diff-row expected');
+                diffClassOk =
+                    actualRows.length >= 2 &&
+                    expectedRows.length >= 2 &&
+                    actualRows[0].textContent === 'post' &&
+                    expectedRows[0].textContent === 'POST' &&
+                    actualRows[1].textContent === 'a=1&b=2' &&
+                    expectedRows[1].textContent === 'b=2&a=1';
+
+                // (d) Simultaneous Stage 4 + Stage 5 failure rendering (both-fail fixture: Stage 4 found + Stage 5 no-match, and both found)
+                const bothFailCase = fixtures.cases.find(c => c.name === 'both-fail');
+                const bothFailDiag = await PopCore.diagnose({
+                    method: bothFailCase.method,
+                    urlStr: `https://${bothFailCase.host}${bothFailCase.path}?${bothFailCase.query}`,
+                    bodyStr: bothFailCase.body,
+                    nonce: bothFailCase.nonce,
+                    timestampStr: String(bothFailCase.timestamp),
+                    signature: bothFailCase.signature,
+                    pubkeyPem,
+                    evalTime: bothFailCase.evalTime,
+                    reqDigest: bothFailCase.digest
+                });
+                PopUI.renderResult(bothFailDiag);
+                const bothFailText = mockPanel.textContent;
+
+                const bomUpperDigest = bomBodyHash.toUpperCase();
+                const simBothFoundSig = toBase64Url(await signRaw(["post", "api.example.com", "/v1/tx", "a=1", bomUpperDigest, nonce, ts].join('\n')));
+                const simBothFoundDiag = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx?a=1",
+                    bodyStr: baseBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: simBothFoundSig,
+                    pubkeyPem: dynPubkeyPem,
+                    evalTime: Number(ts),
+                    reqDigest: `sha256=${bomUpperDigest}`
+                });
+                PopUI.renderResult(simBothFoundDiag);
+                const simBothFoundText = mockPanel.textContent;
+
+                bothFailRenderOk =
+                    bothFailText.includes('Host') &&
+                    bothFailText.includes('원인 파악 실패') &&
+                    simBothFoundText.includes('서명이 검증됩니다') &&
+                    simBothFoundText.includes('다이제스트가 검증됩니다');
+            } finally {
+                if (typeof window === 'undefined') {
+                    global.document = prevDoc;
+                } else if (createdBrowserPanel) {
+                    mockPanel.remove();
+                }
+            }
+
+            if (!renderSpyInnerHtmlUsed && multiSetsOk && indistGuidesOk && diffClassOk && bothFailRenderOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] ui-render-multi-sets-indistinguishable-diff-and-both-fail: innerHtml=${renderSpyInnerHtmlUsed}, multiSetsOk=${multiSetsOk}, indistGuidesOk=${indistGuidesOk}, diffClassOk=${diffClassOk}, bothFailRenderOk=${bothFailRenderOk}`);
+                failed++;
+            }
+        }
+
+        // 40) wrong-key fixture STAGE4_SIG_MISMATCH verification & check_encoding.py exit code 1 on broken UTF-8
+        {
+            const wrongKeyCase = fixtures.cases.find(c => c.name === 'wrong-key');
+            const wrongKeyDiag = await PopCore.diagnose({
+                method: wrongKeyCase.method,
+                urlStr: `https://${wrongKeyCase.host}${wrongKeyCase.path}?${wrongKeyCase.query}`,
+                bodyStr: wrongKeyCase.body,
+                nonce: wrongKeyCase.nonce,
+                timestampStr: String(wrongKeyCase.timestamp),
+                signature: wrongKeyCase.signature,
+                pubkeyPem,
+                evalTime: wrongKeyCase.evalTime,
+                reqDigest: wrongKeyCase.digest
+            });
+            const wrongKeyIsSigMismatch =
+                wrongKeyDiag.firstFailedStage === 4 &&
+                wrongKeyDiag.stages[3] &&
+                wrongKeyDiag.stages[3].code === PopCore.STAGE_CODES.STAGE4_SIG_MISMATCH;
+
+            let encodingCheckExitOk = true;
+            if (typeof window === 'undefined') {
+                const fs = require('fs');
+                const os = require('os');
+                const path = require('path');
+                const { spawnSync } = require('child_process');
+                const tmpBrokenFile = path.join(os.tmpdir(), `pop_broken_utf8_${Date.now()}.txt`);
+                try {
+                    fs.writeFileSync(tmpBrokenFile, Buffer.from([0x68, 0x65, 0x6c, 0x6c, 0x6f, 0xff, 0xfe]));
+                    const proc = spawnSync('python', [path.join(__dirname, '..', 'tools', 'check_encoding.py'), tmpBrokenFile], { encoding: 'utf8' });
+                    encodingCheckExitOk = proc.status === 1;
+                } finally {
+                    if (fs.existsSync(tmpBrokenFile)) fs.unlinkSync(tmpBrokenFile);
+                }
+            }
+
+            if (wrongKeyIsSigMismatch && encodingCheckExitOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] fixtures-wrong-key-and-check-encoding: wrongKeyCode=${wrongKeyDiag.stages[3] && wrongKeyDiag.stages[3].code}, encodingCheckExitOk=${encodingCheckExitOk}`);
+                failed++;
+            }
+        }
+
+        // 41) Additional audit fixes: generateTestSignature (:443 & protocol check), slots CRLF/LF _rawBody preservation, and Stage 5 hypothesis direct rawBody update
+        {
+            // (a) generateTestSignature rejects non-HTTP(S) URLs and preserves explicit :443 so diagnose() passes
+            let nonHttpRejected = false;
+            try {
+                await PopCore.generateTestSignature({
+                    method: 'POST',
+                    urlStr: 'javascript:alert(1)',
+                    bodyStr: 'hello',
+                    nonce: 'n-test-1234',
+                    timestampStr: '1700000000'
+                });
+            } catch (e) {
+                nonHttpRejected = e && e.code === PopCore.ERROR_CODES.INVALID_URL;
+            }
+
+            const gen443 = await PopCore.generateTestSignature({
+                method: 'POST',
+                urlStr: 'https://api.example.com:443/v1/tx?a=1',
+                bodyStr: 'hello',
+                nonce: 'n-test-1234',
+                timestampStr: '1700000000'
+            });
+            const diag443 = await PopCore.diagnose({
+                method: 'POST',
+                urlStr: 'https://api.example.com:443/v1/tx?a=1',
+                bodyStr: 'hello',
+                nonce: 'n-test-1234',
+                timestampStr: '1700000000',
+                signature: gen443.signature,
+                pubkeyPem: gen443.pubkeyPem,
+                evalTime: 1700000000,
+                reqDigest: gen443.reqDigest
+            });
+            const gen443RoundTripOk = diag443.firstFailedStage === null && diag443.stages.every(s => s.status === 'pass' || s.status === 'unknown');
+
+            // (b) Stage 5 hypotheses directly update rawBody alongside bodyHash when h.apply(req, 5) is invoked
+            const s5TrailingHyp = PopCore.HYPOTHESES.find(h => h.id === 'newline-trailing');
+            const s5BomHyp = PopCore.HYPOTHESES.find(h => h.id === 'body-bom-added');
+            const s5MinifiedHyp = PopCore.HYPOTHESES.find(h => h.id === 'body-reserialized-nospace');
+            const sampleReq = { rawBody: '{\n  "a": 1\n}', bodyHash: '' };
+            const trailingApplied = await s5TrailingHyp.apply(sampleReq, 5);
+            const bomApplied = await s5BomHyp.apply(sampleReq, 5);
+            const minifiedApplied = await s5MinifiedHyp.apply(sampleReq, 5);
+            const s5RawBodyOk =
+                trailingApplied.rawBody === '{\n  "a": 1\n}\n' &&
+                bomApplied.rawBody === '\uFEFF{\n  "a": 1\n}' &&
+                minifiedApplied.rawBody === '{"a":1}';
+
+            // (c) slots.js preserves CRLF _rawBody on save and overwrites stale _rawBody on load
+            let slotsCrlfOk = false;
+            const crlfSample = '{\r\n  "x": 1\r\n}';
+            const lfSample = '{\n  "x": 1\n}';
+            const makeSlotMockEl = (tag, isTextarea) => {
+                const el = {
+                    tagName: tag,
+                    className: '',
+                    _val: '',
+                    _text: '',
+                    children: [],
+                    listeners: {},
+                    classList: { add() {}, remove() {} },
+                    setAttribute() {},
+                    remove() {},
+                    get textContent() { return this._text + this.children.map(c => c.textContent || '').join(''); },
+                    set textContent(v) { this._text = String(v ?? ''); this.children = []; },
+                    addEventListener(ev, fn) { this.listeners[ev] = fn; },
+                    appendChild(ch) { this.children.push(ch); return ch; }
+                };
+                if (isTextarea) {
+                    Object.defineProperty(el, 'value', {
+                        get() { return this._val; },
+                        set(v) { this._val = String(v ?? '').replace(/\r\n/g, '\n'); }
+                    });
+                } else {
+                    el.value = '';
+                }
+                return el;
+            };
+
+            const storageMap = {};
+            const mockStorage = {
+                getItem(k) { return Object.prototype.hasOwnProperty.call(storageMap, k) ? storageMap[k] : null; },
+                setItem(k, v) { storageMap[k] = String(v); }
+            };
+
+            if (typeof window === 'undefined') {
+                const renderMod = require('../js/ui/render.js');
+                const inspectorMod = require('../js/ui/inspector.js');
+                const origShowToast = renderMod.showToast;
+                const origResetInspector = inspectorMod.resetInspector;
+                const prevDoc = global.document;
+                const prevStorage = global.localStorage;
+                try {
+                    renderMod.showToast = () => {};
+                    inspectorMod.resetInspector = () => {};
+                    global.localStorage = mockStorage;
+                    const elMap = {
+                        'memory-slots-container': makeSlotMockEl('DIV', false),
+                        'result-panel': makeSlotMockEl('DIV', false),
+                        'req-body': makeSlotMockEl('TEXTAREA', true)
+                    };
+                    global.document = {
+                        body: makeSlotMockEl('BODY', false),
+                        getElementById(id) {
+                            if (!elMap[id]) elMap[id] = makeSlotMockEl('INPUT', false);
+                            return elMap[id];
+                        },
+                        createElement(tag) { return makeSlotMockEl(tag.toUpperCase(), false); },
+                        createTextNode(txt) { const n = makeSlotMockEl('#text', false); n.textContent = txt; return n; }
+                    };
+
+                    // Set CRLF body in req-body and save to slot_1
+                    PopUI.setRawTextareaValue(elMap['req-body'], crlfSample);
+                    PopUI.initMemorySlots();
+                    let slot1Div = elMap['memory-slots-container'].children[0];
+                    let saveBtn1 = slot1Div.children.find(b => b.className.includes('btn-slot-save'));
+                    saveBtn1.listeners.click();
+
+                    // Overwrite req-body with LF, then load slot_1 -> should restore CRLF via readRequestBody
+                    PopUI.setRawTextareaValue(elMap['req-body'], lfSample);
+                    slot1Div = elMap['memory-slots-container'].children[0];
+                    let loadBtn1 = slot1Div.children.find(b => b.className.includes('btn-slot-load'));
+                    loadBtn1.listeners.click();
+                    const loadedCrlf = PopUI.readRequestBody(elMap['req-body']);
+
+                    // Save LF to slot_2, put CRLF in req-body, then load slot_2 -> should overwrite stale CRLF _rawBody with LF
+                    PopUI.setRawTextareaValue(elMap['req-body'], lfSample);
+                    let slot2Div = elMap['memory-slots-container'].children[1];
+                    let saveBtn2 = slot2Div.children.find(b => b.className.includes('btn-slot-save'));
+                    saveBtn2.listeners.click();
+
+                    PopUI.setRawTextareaValue(elMap['req-body'], crlfSample);
+                    slot2Div = elMap['memory-slots-container'].children[1];
+                    let loadBtn2 = slot2Div.children.find(b => b.className.includes('btn-slot-load'));
+                    loadBtn2.listeners.click();
+                    const loadedLf = PopUI.readRequestBody(elMap['req-body']);
+
+                    slotsCrlfOk = (loadedCrlf === crlfSample && loadedLf === lfSample);
+                } finally {
+                    renderMod.showToast = origShowToast;
+                    inspectorMod.resetInspector = origResetInspector;
+                    global.document = prevDoc;
+                    global.localStorage = prevStorage;
+                }
+            } else {
+                const reqBodyEl = document.getElementById('req-body') || makeSlotMockEl('TEXTAREA', true);
+                PopUI.setRawTextareaValue(reqBodyEl, crlfSample);
+                const readCrlf = PopUI.readRequestBody(reqBodyEl);
+                PopUI.setRawTextareaValue(reqBodyEl, lfSample);
+                const readLf = PopUI.readRequestBody(reqBodyEl);
+                slotsCrlfOk = (readCrlf === crlfSample && readLf === lfSample);
+            }
+
+            if (nonHttpRejected && gen443RoundTripOk && s5RawBodyOk && slotsCrlfOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] audit-fixes-generate-sig-slots-and-s5-rawbody: nonHttpRejected=${nonHttpRejected}, gen443RoundTripOk=${gen443RoundTripOk}, s5RawBodyOk=${s5RawBodyOk}, slotsCrlfOk=${slotsCrlfOk}`);
+                failed++;
+            }
+        }
     }
 
-    console.log(`\nTests completed. Passed: ${passed}, Failed: ${failed}`);
+    const total = passed + failed + skipped;
+    console.log(`\nTests completed. Passed: ${passed}, Failed: ${failed}, Skipped: ${skipped} (Total: ${total})`);
     if (failed > 0 && typeof process !== 'undefined') process.exitCode = 1;
 }
 

@@ -1,10 +1,13 @@
 (function (root, factory) {
-    const mod = factory();
+    const jsonErrorUi = (typeof module !== 'undefined' && module.exports)
+        ? require('./jsonError.js')
+        : root.PopUI;
+    const mod = factory(jsonErrorUi);
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = mod;
     }
     root.PopUI = Object.assign(root.PopUI || {}, mod);
-})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function () {
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (jsonErrorUi) {
     const TOAST_DURATION_MS = 2500;
     const TOAST_FADE_MS = 300;
 
@@ -83,6 +86,20 @@
         warnings.forEach(w => {
             const li = document.createElement('li');
             li.textContent = typeof w === 'string' ? w : (w && w.message ? w.message : '');
+            if (
+                w &&
+                typeof w === 'object' &&
+                typeof w.line === 'number' &&
+                typeof w.column === 'number' &&
+                typeof w.problemLine === 'string' &&
+                jsonErrorUi &&
+                typeof jsonErrorUi.formatJsonErrorSnippet === 'function'
+            ) {
+                const detailBox = document.createElement('div');
+                detailBox.className = 'error-detail-box';
+                detailBox.textContent = jsonErrorUi.formatJsonErrorSnippet(w);
+                li.appendChild(detailBox);
+            }
             ul.appendChild(li);
         });
         wDiv.appendChild(ul);
@@ -107,10 +124,19 @@
             }
         }
 
-        if (errObj.detail) {
+        const detailText = (
+            typeof errObj.line === 'number' &&
+            typeof errObj.column === 'number' &&
+            typeof errObj.problemLine === 'string' &&
+            jsonErrorUi &&
+            typeof jsonErrorUi.formatJsonErrorSnippet === 'function'
+        )
+            ? jsonErrorUi.formatJsonErrorSnippet(errObj)
+            : errObj.detail;
+        if (detailText) {
             const detailBox = document.createElement('div');
             detailBox.className = 'error-detail-box';
-            detailBox.textContent = `📌 에러 상세:\n${errObj.detail}`;
+            detailBox.textContent = `📌 에러 상세:\n${detailText}`;
             container.appendChild(detailBox);
         }
     }
@@ -202,13 +228,13 @@
             } else {
                 if (hasAct) {
                     const rowAct = document.createElement('div');
-                    rowAct.className = 'diff-row expected';
+                    rowAct.className = 'diff-row actual';
                     rowAct.textContent = al === '' ? (hasExp ? '(empty)' : '(trailing \\n)') : al.replace(/\r/g, '\\r');
                     diffBox.appendChild(rowAct);
                 }
                 if (hasExp) {
                     const rowExp = document.createElement('div');
-                    rowExp.className = 'diff-row actual';
+                    rowExp.className = 'diff-row expected';
                     rowExp.textContent = el === '' ? '(empty)' : el.replace(/\r/g, '\\r');
                     diffBox.appendChild(rowExp);
                 }
@@ -255,11 +281,24 @@
             hBox.appendChild(renderDiffView(result.expectedCanonical, set.canonical));
         }
 
-        const historyItems = (set.type === 'match' && set.item)
-            ? set.item.history
-            : (set.type === 'indistinguishable' && set.items && set.items[0])
-                ? set.items[0].history
-                : [];
+        const rawHistoryItems = (set.type === 'indistinguishable' && Array.isArray(set.items))
+            ? set.items.reduce((acc, it) => acc.concat(it && Array.isArray(it.history) ? it.history : []), [])
+            : (set.item && Array.isArray(set.item.history))
+                ? set.item.history
+                : (Array.isArray(set.items) && set.items[0] && Array.isArray(set.items[0].history))
+                    ? set.items[0].history
+                    : [];
+
+        const seenGuideIds = new Set();
+        const historyItems = [];
+        rawHistoryItems.forEach(h => {
+            if (!h) return;
+            const dedupKey = h.id || `${h.tag}:${h.label}`;
+            if (!seenGuideIds.has(dedupKey)) {
+                seenGuideIds.add(dedupKey);
+                historyItems.push(h);
+            }
+        });
 
         const hasAnyGuide = historyItems.some(h => h.cause || h.solution);
         if (hasAnyGuide) {
@@ -299,8 +338,10 @@
         }
     }
 
-    function renderNoMatchHypothesis(hBox, expectedCanonical) {
-        hBox.className = 'hypothesis-box error';
+    function renderNoMatchHypothesis(hBox, expectedCanonical, markBoxError = true) {
+        if (markBoxError) {
+            hBox.className = 'hypothesis-box error';
+        }
 
         const h5 = document.createElement('h5');
         h5.textContent = '원인 파악 실패 (일치하는 실수 패턴 없음)';
@@ -328,8 +369,25 @@
         hBox.appendChild(pExp);
 
         const preExp = document.createElement('pre');
-        preExp.textContent = expectedCanonical.replace(/\r/g, '\\r').replace(/\n/g, '\\n\n');
+        preExp.textContent = String(expectedCanonical ?? '').replace(/\r/g, '\\r').replace(/\n/g, '\\n\n');
         hBox.appendChild(preExp);
+    }
+
+    function renderStageHypothesisContent(container, stageRes, stageContext, markContainerError = true) {
+        if (stageRes.reduced) {
+            const redMsg = document.createElement('div');
+            redMsg.className = 'red-msg';
+            redMsg.textContent = "탐색 범위를 줄였음 (최대 탐색 상한 도달)";
+            container.appendChild(redMsg);
+        }
+
+        if (stageRes.type === 'found' && Array.isArray(stageRes.sets) && stageRes.sets.length > 0) {
+            stageRes.sets.forEach((set) => {
+                renderFoundHypothesis(container, set, stageContext);
+            });
+        } else if (stageRes.type === 'no-match') {
+            renderNoMatchHypothesis(container, stageContext.expectedCanonical, markContainerError);
+        }
     }
 
     function renderHypothesisSection(result) {
@@ -339,18 +397,55 @@
         const hBox = document.createElement('div');
         hBox.className = 'hypothesis-box';
 
-        if (hRes.reduced) {
-            const redMsg = document.createElement('div');
-            redMsg.className = 'red-msg';
-            redMsg.textContent = "탐색 범위를 줄였음 (최대 탐색 상한 도달)";
-            hBox.appendChild(redMsg);
+        const s4Sub = (hRes && hRes.stage4) || (result.stage4HypothesisResult && result.stage4HypothesisResult.type !== 'skipped' ? result.stage4HypothesisResult : null);
+        const s5Sub = (hRes && hRes.stage5) || (result.stage5HypothesisResult && result.stage5HypothesisResult.type !== 'skipped' ? result.stage5HypothesisResult : null);
+        const hasBothStages = Boolean(
+            s4Sub && s4Sub.type && s4Sub.type !== 'skipped' &&
+            s5Sub && s5Sub.type && s5Sub.type !== 'skipped'
+        );
+
+        if (hasBothStages) {
+            if (s4Sub.type === 'no-match' && s5Sub.type === 'no-match') {
+                hBox.className = 'hypothesis-box error';
+            }
+
+            const s4Section = document.createElement('div');
+            s4Section.className = s4Sub.type === 'no-match' ? 'hypothesis-stage-section error' : 'hypothesis-stage-section';
+            const s4Title = document.createElement('h5');
+            s4Title.textContent = '4단계 (서명 검증) 가설 탐색 결과';
+            s4Section.appendChild(s4Title);
+            renderStageHypothesisContent(
+                s4Section,
+                s4Sub,
+                {
+                    ...result,
+                    firstFailedStage: 4,
+                    expectedCanonical: s4Sub.expectedCanonical || result.expectedCanonical
+                },
+                false
+            );
+            hBox.appendChild(s4Section);
+
+            const s5Section = document.createElement('div');
+            s5Section.className = s5Sub.type === 'no-match' ? 'hypothesis-stage-section error' : 'hypothesis-stage-section';
+            const s5Title = document.createElement('h5');
+            s5Title.textContent = '5단계 (본문 다이제스트) 가설 탐색 결과';
+            s5Section.appendChild(s5Title);
+            renderStageHypothesisContent(
+                s5Section,
+                s5Sub,
+                {
+                    ...result,
+                    firstFailedStage: 5,
+                    expectedCanonical: s5Sub.expectedCanonical || result.stage5ExpectedCanonical || result.expectedCanonical
+                },
+                false
+            );
+            hBox.appendChild(s5Section);
+            return hBox;
         }
 
-        if (hRes.type === 'found' && hRes.sets.length > 0) {
-            renderFoundHypothesis(hBox, hRes.sets[0], result);
-        } else if (hRes.type === 'no-match') {
-            renderNoMatchHypothesis(hBox, result.expectedCanonical);
-        }
+        renderStageHypothesisContent(hBox, hRes, result, true);
         return hBox;
     }
 
@@ -417,6 +512,9 @@
         setPlaceholder,
         setOverheadVisible,
         getTagLabel,
+        renderDiffView,
+        renderFoundHypothesis,
+        renderHypothesisSection,
         renderResult,
         renderMissingUrlWarning,
         renderGenerateSuccess,

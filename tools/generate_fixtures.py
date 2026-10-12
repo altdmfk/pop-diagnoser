@@ -10,11 +10,12 @@ import time
 
 sim = FIDO2ClientSimulator()
 
-def make_fixture(name, method, host, path, query, body, nonce, timestamp, sign_method=None, sign_host=None, sign_path=None, sign_query=None, sign_body_hash=None, delimiter='\n', expected=None, eval_time=None):
+def make_fixture(name, method, host, path, query, body, nonce, timestamp, sign_method=None, sign_host=None, sign_path=None, sign_query=None, sign_body_hash=None, delimiter='\n', expected=None, eval_time=None, signer=None):
     if sign_method is None: sign_method = method
     if sign_host is None: sign_host = host
     if sign_path is None: sign_path = path
     if sign_query is None: sign_query = query
+    if signer is None: signer = sim
     
     if sign_body_hash is None:
         sign_body_hash = hashlib.sha256(body.encode('utf-8')).hexdigest()
@@ -25,7 +26,7 @@ def make_fixture(name, method, host, path, query, body, nonce, timestamp, sign_m
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import ec
     
-    signature = sim.private_key.sign(canonical_payload.encode('utf-8'), ec.ECDSA(hashes.SHA256()))
+    signature = signer.private_key.sign(canonical_payload.encode('utf-8'), ec.ECDSA(hashes.SHA256()))
     
     from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
     r, s = decode_dss_signature(signature)
@@ -85,7 +86,7 @@ cases[-1]["signature"] = base64.urlsafe_b64encode(der_sig).decode('utf-8').rstri
 cases.append(make_fixture("combo-2", "POST", host, "/v1/tx", "c=3&a=1&b=2", body, nonce, timestamp, sign_method="post", sign_query="a=1&b=2&c=3", expected={"firstFailedStage": 4, "type": "match", "idStr": "method-lowercase,query-sorted"}))
 
 # 9. combo-2-2 (query-sorted + newline-crlf)
-cases.append(make_fixture("combo-2-2", "POST", host, "/v1/tx", "c=3&a=1&b=2", body.replace("\n", "\r\n"), nonce, timestamp, sign_query="a=1&b=2&c=3", sign_body_hash=bh_crlf, expected={"firstFailedStage": 4, "type": "match", "idStr": "query-sorted"}))
+cases.append(make_fixture("combo-2-2", "POST", host, "/v1/tx", "c=3&a=1&b=2", body.replace("\n", "\r\n"), nonce, timestamp, sign_query="a=1&b=2&c=3", sign_body_hash=bh_crlf, expected={"firstFailedStage": 4, "type": "match", "idStr": "newline-crlf,query-sorted"}))
 cases[-1]["body"] = body
 cases[-1]["digest"] = f"sha256={bh_crlf}"
 
@@ -94,11 +95,7 @@ cases.append(make_fixture("outside-catalog", "POST", host, "/v1/tx", "a=1", body
 
 # 11. wrong-key
 sim2 = FIDO2ClientSimulator()
-cases.append(make_fixture("wrong-key", "POST", host, "/v1/tx", "a=1", body, nonce, timestamp, expected={"firstFailedStage": 4, "type": "no-match"}))
-cases[-1]["signature"] = base64.urlsafe_b64encode(sim2.private_key.sign(
-    '\\n'.join(["POST", host, "/v1/tx", "a=1", hashlib.sha256(body.encode('utf-8')).hexdigest(), nonce, str(timestamp)]).encode('utf-8'),
-    ec.ECDSA(hashes.SHA256())
-)).decode().rstrip("=")
+cases.append(make_fixture("wrong-key", "POST", host, "/v1/tx", "a=1", body, nonce, timestamp, expected={"firstFailedStage": 4, "type": "no-match"}, signer=sim2))
 
 # 12. indistinguishable
 cases.append(make_fixture("indistinguishable", "POST", host, "/v1/tx", "b=2&a=1", body, nonce, timestamp, sign_query="a=1&b=2", expected={"firstFailedStage": 4, "type": "indistinguishable"}))
@@ -118,7 +115,18 @@ cases.append(make_fixture("host-rewritten", "POST", "api.example.com", "/v1/tx",
 cases.append(make_fixture("both-fail", "POST", host, "/v1/tx", "a=1", body, nonce, timestamp, sign_host="api.example.com:443", sign_body_hash=bh_wrong, expected={"firstFailedStage": 4, "type": "match", "idStr": "host-rewritten"}))
 cases[-1]["digest"] = f"sha256={bh_wrong}"
 
-out = f"const FIXTURES = {{ 'eval_time': {timestamp}, 'public_key': {json.dumps(sim.get_public_key_pem())}, 'cases': {json.dumps(cases, indent=2)} }};\nif (typeof window !== 'undefined') window.FIXTURES = FIXTURES;\nif (typeof module !== 'undefined') module.exports = FIXTURES;"
+out = (
+    "(function (root, factory) {\n"
+    "    const mod = factory();\n"
+    "    if (typeof module !== 'undefined' && module.exports) {\n"
+    "        module.exports = mod;\n"
+    "    } else {\n"
+    "        root.PopTestFixtures = mod;\n"
+    "    }\n"
+    "})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function () {\n"
+    f"    return {{ 'eval_time': {timestamp}, 'public_key': {json.dumps(sim.get_public_key_pem())}, 'cases': {json.dumps(cases, indent=2)} }};\n"
+    "});\n"
+)
 
 import os
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

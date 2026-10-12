@@ -1,14 +1,16 @@
 (function (root, factory) {
-    const mod = factory();
+    const coreJsonError = (typeof module !== 'undefined' && module.exports)
+        ? require('../core/jsonError.js')
+        : root.PopCore;
+    const mod = factory(coreJsonError);
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = mod;
     }
-    root.PopCore = Object.assign(root.PopCore || {}, mod);
     root.PopUI = Object.assign(root.PopUI || {}, mod);
-})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function () {
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (coreJsonError) {
     function isFullWidthChar(ch) {
-        if (!ch) return false;
-        const code = ch.charCodeAt(0);
+        if (ch === undefined || ch === null || ch === '') return false;
+        const code = typeof ch === 'number' ? ch : String(ch).charCodeAt(0);
         return (
             (code >= 0x1100 && code <= 0x11FF) ||
             (code >= 0x2E80 && code <= 0x9FFF) ||
@@ -20,152 +22,50 @@
         );
     }
 
+    /**
+     * UI presentation helper: builds a visual code snippet with a full-width
+     * compensated pointer (`▲`) from structured location data (`line`, `column`, `problemLine`, `cleanMessage`).
+     */
+    function formatJsonErrorSnippet(loc) {
+        if (!loc || typeof loc !== 'object') return '';
+        if (typeof loc.line !== 'number' || typeof loc.column !== 'number' || typeof loc.problemLine !== 'string') {
+            return typeof loc.detail === 'string'
+                ? loc.detail
+                : (typeof loc.cleanMessage === 'string' ? loc.cleanMessage : (loc.message ? String(loc.message) : ''));
+        }
+
+        const problemLine = loc.problemLine;
+        let pointer = '';
+        const limit = Math.max(0, Math.min(loc.column - 1, problemLine.length));
+        for (let i = 0; i < limit; i++) {
+            const ch = problemLine[i];
+            if (ch === '\t') {
+                pointer += '\t';
+            } else if (isFullWidthChar(ch)) {
+                pointer += '  ';
+            } else {
+                pointer += ' ';
+            }
+        }
+        pointer += '▲';
+
+        const headerMsg = loc.cleanMessage || loc.message || '';
+        return `${headerMsg}\n\n[문제 발생 위치: ${loc.line}번째 줄, ${loc.column}번째 칸]\n${problemLine}\n${pointer}`;
+    }
+
     function getJsonErrorSnippet(e, jsonStr) {
-        let msg = e && e.message ? e.message : String(e);
-        try {
-            const lineColMatch = msg.match(/line\s+(\d+)\s+column\s+(\d+)/i);
-            const posMatch = msg.match(/position\s+(\d+)/i);
-            if ((lineColMatch || posMatch) && jsonStr) {
-                let lineNum = 1, colNum = 1;
-
-                if (lineColMatch) {
-                    lineNum = parseInt(lineColMatch[1], 10);
-                    colNum = parseInt(lineColMatch[2], 10);
-                } else if (posMatch) {
-                    const pos = parseInt(posMatch[1], 10);
-                    const upToPos = jsonStr.substring(0, pos);
-                    const upToLines = upToPos.split(/\r?\n/);
-                    lineNum = upToLines.length;
-                    colNum = upToLines[upToLines.length - 1].length + 1;
-                }
-
-                const lines = jsonStr.split(/\r?\n/);
-                if (lineNum > 0 && lineNum <= lines.length) {
-                    const problemLine = lines[lineNum - 1];
-                    let pointer = '';
-                    const limit = Math.min(colNum - 1, problemLine.length);
-                    for (let i = 0; i < limit; i++) {
-                        const ch = problemLine[i];
-                        if (ch === '\t') {
-                            pointer += '\t';
-                        } else if (isFullWidthChar(ch)) {
-                            pointer += '  ';
-                        } else {
-                            pointer += ' ';
-                        }
-                    }
-                    pointer += '▲';
-
-                    msg = msg
-                        .replace(/\s+in\s+JSON\s+at\s+position\s+\d+.*$/i, '')
-                        .replace(/\s+at\s+position\s+\d+.*$/i, '')
-                        .replace(/\s*\(line\s+\d+\s+column\s+\d+\).*$/i, '')
-                        .replace(/\s+at\s+line\s+\d+\s+column\s+\d+.*$/i, '')
-                        .trim();
-                    return `${msg}\n\n[문제 발생 위치: ${lineNum}번째 줄, ${colNum}번째 칸]\n${problemLine}\n${pointer}`;
-                }
-            }
-        } catch (err) {}
-        return msg;
+        const loc = coreJsonError && typeof coreJsonError.extractJsonErrorLocation === 'function'
+            ? coreJsonError.extractJsonErrorLocation(e, jsonStr)
+            : { message: e && e.message ? e.message : String(e ?? ''), line: null, column: null, problemLine: null };
+        if (loc.line !== null && loc.column !== null && loc.problemLine !== null) {
+            return formatJsonErrorSnippet(loc);
+        }
+        return loc.message;
     }
 
-    const JSON_HINT_CODES = {
-        MISSING_OPEN_BRACE: 'ERR_JSON_MISSING_OPEN_BRACE',
-        MISSING_OPEN_BRACKET: 'ERR_JSON_MISSING_OPEN_BRACKET',
-        MISSING_CLOSE_BRACE: 'ERR_JSON_MISSING_CLOSE_BRACE',
-        MISSING_CLOSE_BRACKET: 'ERR_JSON_MISSING_CLOSE_BRACKET',
-        TRAILING_COMMA: 'ERR_JSON_TRAILING_COMMA',
-        SINGLE_QUOTE: 'ERR_JSON_SINGLE_QUOTE',
-        UNQUOTED_KEY: 'ERR_JSON_UNQUOTED_KEY',
-        UNQUOTED_VALUE: 'ERR_JSON_UNQUOTED_VALUE',
-        SYNTAX_ERROR: 'ERR_JSON_SYNTAX_ERROR'
+    return {
+        isFullWidthChar,
+        formatJsonErrorSnippet,
+        getJsonErrorSnippet
     };
-
-    function detectJsonErrorHint(e, jsonStr) {
-        if (!jsonStr || typeof jsonStr !== 'string') return null;
-        const trimmed = jsonStr.trim();
-        if (!trimmed) return null;
-
-        const startsWithBrace = trimmed.startsWith('{') || trimmed.startsWith('[');
-        if (!startsWithBrace) {
-            if (trimmed.endsWith('}') || /"[^"\\\r\n]+"\s*:/.test(trimmed)) {
-                const startsWithQuote = trimmed.startsWith('"');
-                const reason = startsWithQuote
-                    ? "첫 번째 키-값 쌍이 단일 문자열로 처리되어 뒤따르는 콜론(:)에서 문법 오류가 감지되었습니다."
-                    : "객체 형식을 시작하려면 맨 앞에 '{'가 있어야 합니다.";
-                return {
-                    hintCode: JSON_HINT_CODES.MISSING_OPEN_BRACE,
-                    hint: `맨 앞의 여는 중괄호('{')가 누락된 것으로 보입니다. ${reason}`,
-                    hintExample: '(예: { "key": "value" })'
-                };
-            }
-            if (trimmed.endsWith(']')) {
-                return {
-                    hintCode: JSON_HINT_CODES.MISSING_OPEN_BRACKET,
-                    hint: "맨 앞의 여는 대괄호('[')가 누락된 것으로 보입니다.",
-                    hintExample: '(예: [ "item1", "item2" ])'
-                };
-            }
-        }
-
-        if (trimmed.startsWith('{') && !trimmed.endsWith('}')) {
-            return {
-                hintCode: JSON_HINT_CODES.MISSING_CLOSE_BRACE,
-                hint: "맨 끝의 닫는 중괄호('}')가 누락되었거나 본문 끝이 잘려 있는지 확인해 주세요.",
-                hintExample: '(예: { ... })'
-            };
-        }
-        if (trimmed.startsWith('[') && !trimmed.endsWith(']')) {
-            return {
-                hintCode: JSON_HINT_CODES.MISSING_CLOSE_BRACKET,
-                hint: "맨 끝의 닫는 대괄호(']')가 누락되었거나 본문 끝이 잘려 있는지 확인해 주세요.",
-                hintExample: '(예: [ ... ])'
-            };
-        }
-
-        if (/,\s*[}\]]/.test(trimmed)) {
-            return {
-                hintCode: JSON_HINT_CODES.TRAILING_COMMA,
-                hint: "마지막 항목 뒤에 불필요한 쉼표(',')가 붙어 있습니다. JSON 표준에서는 마지막 쉼표(Trailing Comma)를 허용하지 않습니다.",
-                hintExample: '(예: {"a": 1,} ➔ {"a": 1})'
-            };
-        }
-
-        if (/'[^'\\\r\n]*'\s*:/.test(trimmed) || /:\s*'[^'\\\r\n]*'/.test(trimmed)) {
-            return {
-                hintCode: JSON_HINT_CODES.SINGLE_QUOTE,
-                hint: "JSON에서는 작은따옴표(')를 사용할 수 없으며, 키와 문자열 값은 반드시 큰따옴표(\")로 감싸야 합니다.",
-                hintExample: '(예: {\'key\': \'val\'} ➔ {"key": "val"})'
-            };
-        }
-
-        const unquotedKeyMatch = trimmed.match(/(?:[{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/);
-        if (unquotedKeyMatch && !unquotedKeyMatch[1].startsWith('"')) {
-            return {
-                hintCode: JSON_HINT_CODES.UNQUOTED_KEY,
-                hint: `JSON의 키(속성명) '${unquotedKeyMatch[1]}'는 반드시 큰따옴표(\")로 감싸야 합니다.`,
-                hintExample: `(예: "${unquotedKeyMatch[1]}": ...)`
-            };
-        }
-
-        const unquotedValMatch = trimmed.match(/:\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*[,}\]]/);
-        if (unquotedValMatch) {
-            const val = unquotedValMatch[1];
-            if (!['true', 'false', 'null'].includes(val)) {
-                return {
-                    hintCode: JSON_HINT_CODES.UNQUOTED_VALUE,
-                    hint: `값 '${val}'이(가) 큰따옴표(\")로 감싸져 있지 않거나 유효하지 않은 JSON 값입니다.`,
-                    hintExample: `(예: "${val}")`
-                };
-            }
-        }
-
-        return {
-            hintCode: JSON_HINT_CODES.SYNTAX_ERROR,
-            hint: "중괄호({, })나 대괄호([, ]), 쉼표(,), 큰따옴표(\")의 짝이 올바르게 맞는지 확인해 주세요.",
-            hintExample: '(예: {"key": "value"})'
-        };
-    }
-
-    return { isFullWidthChar, getJsonErrorSnippet, detectJsonErrorHint, JSON_HINT_CODES };
 });

@@ -116,28 +116,118 @@
 
 ---
 
-## 7. 문서 ↔ 코드 불일치를 확인한 방법과 추가 도구 구현
+## 7. 비-JSON 본문 진단 차단 및 1단계 실행 순서 역전
 
-- **문서·코드 교차 확인**
-  - 리팩토링 전에 `README.md`에 적힌 기능 설명을 항목별로 나누고, 실제 코드의 함수·줄 번호와 1:1로 대조했습니다.
-  - 이 과정에서 `README.md`에는 적혀 있으나 매칭되지 않던 가설 4종(`query-unsorted`, `sig-base64url`, `digest-hex`, `newline-trailing`)과, 반대로 코드(`HYPOTHESES`)에는 있었으나 문서에 빠져 있던 가설 3종(`query-reverse`, `host-rewritten`, `body-bom-added`)을 찾아 문서와 테스트를 맞췄습니다.
-- **진단 보조 기능 추가**
-  - **서명 · 공개키 인스펙터 ([`js/core/inspect.js`](../js/core/inspect.js), [`js/ui/inspector.js`](../js/ui/inspector.js))**: 서명의 인코딩(`base64url` / 표준 `base64` / `hex`), `raw-rs(64B)` vs `der` 구조, `r`·`s` 값과 High-S 여부, 공개키의 SPKI OID(`ecPublicKey`, `P-256`), 타원곡선 위 좌표 검증(\(y^2 \equiv x^3 - 3x + b \pmod p\)), SHA-256 Fingerprint를 별도 패널에서 확인할 수 있게 추가했습니다.
-  - **cURL / Raw HTTP 붙여넣기 파서 및 샘플 버튼 ([`js/core/curlParser.js`](../js/core/curlParser.js), [`js/ui/importer.js`](../js/ui/importer.js))**: `eval` 없이 동작하는 상태 기계 토크나이저로 브라우저 DevTools의 `Copy as cURL (bash)` 명령어와 Raw HTTP 요청을 파싱해 입력칸에 채우는 기능을 추가했습니다. 로컬 파일 참조(`-d @file`)나 셸 치환(`$(...)`) 등은 실행하지 않고 거부 사유를 안내하며, 바로 시험해 볼 수 있는 샘플 명령어 버튼 3종을 함께 구성했습니다.
-  - **키보드 접근성 및 모바일 대응 ([`js/ui/tabs.js`](../js/ui/tabs.js), [`css/style.css`](../css/style.css))**: 탭 목록에 `role="tablist"`와 방향키·`Home`·`End` 키 이동(Roving `tabindex`)을 적용하고, 모든 `<label for>` 연결 여부를 [`test/test.js`](../test/test.js)에서 정적 검사하도록 추가했습니다.
+- **문제**
+  - `diagnose()`가 1단계(필수 헤더·입력 유무 확인)보다 먼저 `validateJsonBody()`를 실행하고, `bodyStr`이 비어 있지 않으면 `JSON.parse`를 통과해야만 진단을 진행했습니다.
+  - 게이트웨이는 본문을 바이트 스트림으로 SHA-256 해시할 뿐 JSON만 허용하지 않는데도, 평문(`"hello"`)이나 `form-urlencoded` 본문이 들어오면 `golden_pass.js`와 1~5단계 진단이 즉시 중단되었습니다.
+- **원인**
+  - [`js/core/diagnose.js`](../js/core/diagnose.js)에서 JSON 문법 보조 검사를 치명적 입력 오류(`result.error`)로 취급하고 1단계 필수 항목 점검보다 앞단에 배치했습니다.
+- **수정**
+  - `diagnose()` 실행 순서를 `1단계(필수 입력 확인) → 입력 형식 검사(URL·공개키·서명·타임스탬프) → 2~5단계 검증`으로 바로잡았습니다.
+  - `validateJsonBody()`는 본문이 `{`, `[`로 시작하거나 `,`, `:`, `}` 등 JSON 구문 흔적이 있을 때만 수행하고, 문법 오류 시 진단을 중단시키는 `error`가 아니라 `result.warnings`(`INVALID_JSON`)로 기록해 5단계 다이제스트 불일치 화면에서 함께 안내하도록 변경했습니다.
+- **교훈**
+  - 사용자 편의를 위한 휴리스틱 검사(JSON 문법 힌트)가 프로토콜의 본질적 검증(바이트 스트림 해시 및 서명 검증)을 가로막아서는 안 됩니다.
 
 ---
 
-## 8. 리팩토링 전·후 정량 지표 비교
+## 8. 메인 진단기와 인스펙터 간 파서·판별기 이원화 및 비밀키 추출 가능 설정
+
+- **문제**
+  1. 128자리 Hex 서명을 넣으면 인스펙터는 `hex (64B)`로 판정하는 반면 메인 진단기는 `base64url (96B)`로 디코딩해 길이 오류를 냈고, `=` 패딩이 붙은 표준 Base64 서명(우연히 `+`, `/` 미포함)이 `base64UrlDecode()`를 그대로 통과했습니다.
+  2. `importPublicKey()`와 `inspectPublicKey()`, `derToRaw()`와 `inspectDerStructure()`가 각각 따로 구현되어 있어 비최소 DER 정수(`02 02 00 05`), 역순 PEM 헤더, `PRIVATE KEY` 입력에 대해 서로 다른 판정을 내렸습니다.
+  3. `generateKeyPairAndSign()`이 `extractable: true`로 키쌍을 생성해 비밀키가 메모리에서 내보내기 가능한 상태였습니다.
+- **원인**
+  - 인스펙터 기능을 추가할 때 기존 코어 파서를 재사용하지 않고 별도 정규식·바이트 파서를 중복 작성하면서 경계 조건이 갈라졌습니다.
+- **수정**
+  - [`js/core/encoding.js`](../js/core/encoding.js)의 `detectSignatureEncoding()`과 패딩 없는 `base64UrlDecode()`, [`js/core/ecdsa.js`](../js/core/ecdsa.js)의 `parseDerSignature()`와 `parsePublicKeyPem()`으로 파서를 단일화해 메인 진단기와 인스펙터가 동일한 판정을 내리도록 통합했습니다.
+  - `PRIVATE KEY` PEM 입력 시 즉시 `PRIVATE_KEY_REJECTED`로 거부하고, `generateKeyPairAndSign()`의 `generateKey` 호출을 `extractable: false`로 고정했습니다.
+- **교훈**
+  - 같은 입력 포맷(Base64url/Hex, ASN.1 DER, SPKI PEM)을 다루는 진단 로직과 시각화 인스펙터는 반드시 단일 파서 함수를 공유해야 판정 모순을 막을 수 있습니다.
+
+---
+
+## 9. BFS 가설 탐색의 순열·역연산 중복 검증 및 4·5단계 복합 탐색 누락
+
+- **문제**
+  - 깊이 3 BFS에서 가설 집합 `{A, B, C}`가 6가지 순서로 중복 탐색되어 `WebCrypto.subtle.verify`가 불필요하게 반복 호출되었고, `path-trailing-slash-add` 뒤 `remove`처럼 서로 역연산인 조합도 재검증되었습니다.
+  - 5단계는 깊이 1 단일 가설만 순회해 `body-bom-added + digest-hex` 같은 복합 원인을 찾지 못했고, 4·5단계 동시 실패(`both-fail`) 시 4단계만 탐색해 5단계 원인이 누락되었습니다.
+- **원인**
+  - [`js/core/diagnose.js`](../js/core/diagnose.js)의 BFS 큐가 조합 인덱스 순서나 `(canonical, signature)` 상태 중복을 관리하지 않았고, 5단계 탐색이 단순 1중 루프로 작성되어 있었습니다.
+- **수정**
+  - 조합 인덱스 오름차순(`startIdx`)과 역연산 쌍 배제를 적용하고, `(canonical, signature)` 상태 캐시로 동일 상태에 대한 `verify` 재호출을 0회로 줄이면서 같은 깊이에서 동일 상태로 수렴하는 구분 불가(`indistinguishable`) 경로는 보존했습니다.
+  - `sig-base64url`을 `sig-der`보다 앞에 배치해 순서 의존 쌍이 정상 동작하도록 보장하고, 5단계에도 깊이 1~3 BFS 조합 탐색을 도입했으며, 4·5단계 동시 실패 시 두 단계의 탐색 결과를 모두 반환·렌더링하도록 개선했습니다.
+- **교훈**
+  - 탐색 공간이 작더라도 순열 중복과 항등 전이를 제거해야 상한(`maxSearchNodes: 100`)이 의미를 가지며, 순서에 의존하는 전이 쌍은 카탈로그 정렬 순서와 테스트로 명시해야 합니다.
+
+---
+
+## 10. WHATWG `new URL()`의 기본 포트(`:443`) 제거와 `host-rewritten` 오작동
+
+- **문제**
+  - `https://api.example.com:443/v1/tx`를 입력해도 `new URL()`이 기본 포트 `:443`을 자동 제거해 `baseReq.host`에서 `:443`이 사라졌고, 반대로 커스텀 포트(`:8443`)나 IPv6 호스트(`[::1]`)는 `newHost.split(':')[0]` 때문에 포트가 잘리거나 호스트 문자열이 깨졌습니다.
+- **원인**
+  - WHATWG URL 파서의 기본 포트 정규화 동작을 고려하지 않고 `urlObj.host`를 그대로 썼으며, `host-rewritten` 가설이 단순 `split(':')`으로 작성되어 있었습니다.
+- **수정**
+  - [`js/core/diagnose.js`](../js/core/diagnose.js)의 `extractEffectiveHost()`로 원문 URL에 `:443`이 명시되었는지 보존(`diagnose()` 및 `generateTestSignature()` 모두 적용)하고, [`js/core/hypotheses.js`](../js/core/hypotheses.js)의 `host-rewritten`은 IPv6 브래킷과 커스텀 포트를 보존한 채 기본 포트 `:443`의 유무만 양방향 토글하도록 수정했습니다.
+- **교훈**
+  - 표준 URL 파서는 프로토콜 기본 포트를 정규화하므로, 원문 문자열 자체가 서명 대상이 되는 프로토콜에서는 파서 정규화 전 원문 토큰을 별도로 추출해야 합니다.
+
+---
+
+## 11. 줄바꿈(`CRLF` ↔ `LF`) 단방향 가설 및 브라우저 `<textarea>` 개행 정규화
+
+- **문제**
+  - 5단계 `newline-crlf` 가설이 `\n → \r\n` 단방향 변환만 수행해, 본문이 `\r\n`이고 클라이언트가 `\n`으로 해시한 반대 경우를 탐지하지 못했습니다.
+  - 또한 HTML 표준상 `<textarea>`는 값을 읽을 때 `\r\n`을 `\n`으로 정규화하고 `app.js`도 `.replace(/\r\n/g, '\n')`을 수행해, cURL/Raw HTTP 파서가 보존한 `\r\n`이 브라우저에서 유실되었습니다.
+- **원인**
+  - 5단계 가설이 입력 본문을 항상 LF라고 가정했고, 브라우저 DOM `<textarea>`의 개행 정규화 명세를 고려하지 않았습니다.
+- **수정**
+  - 5단계 `newline-crlf`를 양방향 토글(`\r\n` 포함 시 `\n`으로, 미포함 시 `\r\n`으로 변환)로 수정했습니다.
+  - [`js/ui/importer.js`](../js/ui/importer.js)에 `setRawTextareaValue()` / `readRequestBody()` 헬퍼를 두고 [`js/ui/slots.js`](../js/ui/slots.js)의 슬롯 저장·불러오기에서도 `_rawBody`를 함께 보존해, 파서·샘플·슬롯이 주입한 원본 본문(`\r\n` 포함)을 사용자가 직접 편집하기 전까지 진단기에 그대로 전달하며 `<textarea>`의 LF 정규화 한계를 UI 배너와 `README.md`에 명시했습니다.
+- **교훈**
+  - 바이트 단위 해시를 진단하는 웹 도구에서는 HTML 폼 요소(`<textarea>`)의 자동 정규화 동작과 메모리 원본 값을 분리해 다루어야 합니다.
+
+---
+
+## 12. 코어 → UI 역의존, UI 다중 가설 렌더링 누락 및 파이썬 검증 도구 결함
+
+- **문제**
+  1. `core/diagnose.js`가 `../ui/jsonError.js` 및 `root.PopUI`를 참조하는 역방향 의존성이 있었고, `index.html`이 테스트 픽스처(`test/fixtures/fixtures.js`)를 운영 스크립트로 직접 로드했습니다.
+  2. [`js/ui/render.js`](../js/ui/render.js)가 `hRes.sets[0]`만 렌더링하고 `sets[1..n]`을 버렸으며, `indistinguishable`일 때 첫 후보의 해결 가이드만 표시하고, Diff 뷰의 `actual`/`expected` CSS 클래스가 반대로 붙어 있었습니다.
+  3. [`tools/generate_fixtures.py`](../tools/generate_fixtures.py)의 `wrong-key` 픽스처가 DER 서명(~71B)과 리터럴 `\\n`을 사용해 키 불일치가 아닌 서명 길이 오류로 실패했고, [`tools/check_encoding.py`](../tools/check_encoding.py)는 인코딩 이상 발견 시에도 종료 코드 `0`을 반환했습니다.
+- **원인**
+  - 모듈 분리 시 데이터 추출(`extractJsonErrorLocation`)과 시각 포맷팅(`formatJsonErrorSnippet`)의 경계를 나누지 않았고, UI 렌더러가 단일 매칭 케이스만 가정해 배열의 첫 원소(`[0]`)만 참조했습니다.
+- **수정**
+  - JSON 오류 위치·원인 데이터 추출은 [`js/core/jsonError.js`](../js/core/jsonError.js)로, 전각 폭 보정 포인터(`▲`) 문자열 조립은 [`js/ui/jsonError.js`](../js/ui/jsonError.js)로 분리하고, 운영용 데모 데이터는 [`js/ui/samples.js`](../js/ui/samples.js)로 독립시켰습니다.
+  - `renderHypothesisSection()`이 모든 `sets`와 4·5단계 동시 실패 결과를 렌더링하고, `indistinguishable` 후보 전체의 가이드를 중복 없이 표시하며, Diff 행의 `actual`(`-` 빨강) / `expected`(`+` 초록) 클래스를 일치시켰습니다.
+  - `generate_fixtures.py`의 `wrong-key`가 `make_fixture(..., signer=sim2)`를 재사용하도록 고쳐 14개 픽스처를 재생성하고, `differential_check.py`는 단일 `node` 호출 + `tempfile` 정리 방식으로 개선했으며, `check_encoding.py`는 이상 발견 시 `sys.exit(1)`을 반환하도록 수정하고 CI 워크플로우에 추가했습니다.
+- **교훈**
+  - 코어/UI 계층 분리, 테스트 픽스처의 실제 실패 코드 검증, 정적 검사 스크립트의 종료 코드(`exit 1`)는 자동화 테스트로 고정해 두어야 회귀를 막을 수 있습니다.
+
+---
+
+## 13. 문서 ↔ 코드 교차 확인 및 진단 보조 도구 요약
+
+- **문서·코드 교차 확인**
+  - `README.md`에 적힌 기능·수치·흐름도를 실제 코드의 함수와 1:1로 대조해 불일치 항목(실행 순서, 5단계 BFS 조합 탐색, 4·5단계 동시 실패 처리, `maxSearchNodes: 100`, 모듈 개수, `:443` 토글 범위, `<textarea>` 줄바꿈 한계 등)을 모두 동기화했습니다.
+- **진단 보조 기능**
+  - **서명 · 공개키 인스펙터 ([`js/core/inspect.js`](../js/core/inspect.js), [`js/ui/inspector.js`](../js/ui/inspector.js))**: 서명의 인코딩(`base64url` / 표준 `base64` / `hex`), `raw-rs(64B)` vs `der` 구조, `r`·`s` 값과 High-S 여부, 공개키의 SPKI OID(`ecPublicKey`, `P-256`), 타원곡선 위 좌표 검증(\(y^2 \equiv x^3 - 3x + b \pmod p\)), SHA-256 Fingerprint를 별도 패널에서 확인합니다.
+  - **cURL / Raw HTTP 붙여넣기 파서 및 샘플 버튼 ([`js/core/curlParser.js`](../js/core/curlParser.js), [`js/ui/importer.js`](../js/ui/importer.js))**: `eval` 없이 동작하는 상태 기계 토크나이저로 브라우저 DevTools의 `Copy as cURL (bash)` 명령어와 Raw HTTP 요청을 파싱해 입력칸에 채웁니다.
+  - **키보드 접근성 및 모바일 대응 ([`js/ui/tabs.js`](../js/ui/tabs.js), [`css/style.css`](../css/style.css))**: 탭 목록에 `role="tablist"`와 방향키·`Home`·`End` 키 이동(Roving `tabindex`)을 적용하고, 모든 `<label for>` 연결 여부를 [`test/test.js`](../test/test.js)에서 정적 검사합니다.
+
+---
+
+## 14. 리팩토링 전·후 정량 지표 비교
 
 아래 수치는 저장소 파일과 `node test.js` 실행 결과를 기준으로 집계한 값입니다.
 
-| 지표 항목 | 리팩토링 전 (Phase 0 Baseline) | 현재 | 비고 |
+| 지표 항목 | 리팩토링 전 | 현재 | 비고 |
 | :--- | :--- | :--- | :--- |
-| **`node test.js` 결과** | **16 통과 / 1 실패 / 실행 중 오류 중단** | **59 통과 / 0 실패** | `node test.js`, `node test/test.js`, `test.html` 동일 |
-| **가설 카탈로그 동작 여부** | README 11개 중 **7개만 동작** (3개 불능, 1개 5단계 전용) + 미문서화 3개 | **13개 가설(14개 항목) 동작 및 개별 테스트 보유** | 항등 가설 `query-unsorted` 제거 및 문서 동기화 |
-| **5단계 가설 UI 표시** | 매칭되어도 화면 미출력 (`type: 'match'` 불일치) | **4·5단계 모두 원인 설명 + Diff 출력** | 반환 스키마 `{ type: 'found', sets }` 통일 |
-| **소스 파일 구성** | 루트 단일 파일 위주 (`diagnose-core.js` 782줄, `app.js` 465줄, `style.css` 479줄) | **역할별 15개 UMD 모듈 + `css/style.css` 분리** | `js/core/`(8개), `js/ui/`(6개), `js/app.js`(1개) |
-| **진단 보조 기능** | 데모 시나리오 5종 및 테스트 서명 생성기 | **+ 서명·공개키 인스펙터, cURL/Raw HTTP 파서(샘플 3종), 키보드 탭 접근성** | 기존 진단 파이프라인 결과 불변 유지 |
+| **`node test.js` 결과** | **16 통과 / 1 실패 / 실행 중 오류 중단** | **79 통과 / 0 실패 / 0 건너뜀** | 브라우저(`test.html`)는 Node `fs` 전용 1건 제외 **78 통과 / 1 건너뜀 (총 79건)** |
+| **가설 카탈로그 동작 여부** | README 11개 중 **7개만 동작** (3개 불능, 1개 5단계 전용) + 미문서화 3개 | **13개 가설(14개 항목) 동작 및 고정 벡터 테스트 보유** | 항등 가설 `query-unsorted` 제거, 4·5단계 최대 깊이 3 BFS 조합 탐색 |
+| **4·5단계 가설 UI 표시** | 5단계 매칭 미출력, `sets[0]`만 출력, Diff 색상 반대 | **4·5단계 동시 표시, 모든 `sets` 및 후보 가이드 출력, Diff 색상 일치** | 반환 스키마 `{ type: 'found', sets }` 통일 |
+| **소스 파일 구성** | 루트 단일 파일 위주 (`diagnose-core.js` 782줄, `app.js` 465줄, `style.css` 479줄) | **역할별 17개 UMD 모듈 + `css/style.css` 분리** | `js/core/`(9개), `js/ui/`(7개), `js/app.js`(1개), 코어→UI 역의존 0건 |
+| **진단 보조 기능** | 데모 시나리오 5종 및 테스트 서명 생성기 | **데모 7종 + 서명·공개키 인스펙터 + cURL/Raw HTTP 파서 + 키보드 접근성** | 기존 진단 파이프라인 결과 불변 유지 |
 | **`innerHTML` 사용 건수** | **10건** (이 중 사용자 입력 삽입 XSS 3건) | **0건** | 전체 `createElement` / `textContent` 사용 |
 | **`el.style.*` / `!important`** | `el.style.*` **27건**, CSS `!important` **12건** | **각 0건** | CSS 클래스 토글(`.hidden`, `.toast-visible` 등)로 통일 |

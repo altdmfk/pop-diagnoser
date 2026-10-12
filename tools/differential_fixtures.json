@@ -1,5 +1,5 @@
 {
-  "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
   "cases": [
     {
       "case": "정상",
@@ -12,13 +12,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "cf27a260-d94c-4ec4-a183-696df27c4573",
-        "timestampStr": "1791418625",
-        "signature": "0of8ujfYJKbhcaP5GdEUQLSw_wQpV4QagNRbIHK0j9Qx-E-oisqnjakqkv2V0Wk1l6tAWYiM6j4KYya5CSdIFQ",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "nonce": "0b8096f6-f60e-463e-84f3-8ee70304754e",
+        "timestampStr": "1791792822",
+        "signature": "h1qRrwovvIC6bANmy08YIj5doSdJwFwF0d3slUwOCVr2MZxad7046nstjRD09694AXMaHYy_ceolZKSoo2uK_Q",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -32,13 +31,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "cf27a260-d94c-4ec4-a183-696df27c4573",
-        "timestampStr": "1791418625",
-        "signature": "ytYX4pwVxM6luH2n1YotPAH3fKbKdCazMyxvErhBLwMMIx6o7WuFF3srWEFcTwr0YuyufXqvAgJiIRkmybdbBw",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "nonce": "0b8096f6-f60e-463e-84f3-8ee70304754e",
+        "timestampStr": "1791792822",
+        "signature": "vgFAl476bis-Ssv6-SCxWIxFNmtLprhSwn97rezywaq_2Z1iQBXBg0cW_NJcKGk99xmSJVOfNMKAkNm8L7gN4g",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -52,13 +50,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=2",
         "bodyStr": "hello",
-        "nonce": "9819e3ac-611a-452c-9d44-43d6893fda3a",
-        "timestampStr": "1791418625",
-        "signature": "O4d-q1Jams3bzAD02BLliQT1CrAmMK9y4DHXCpvcsZtnESNwmqoS_XUmcLha6hdcXbWdbTSJ1dJ5usmTF14o1A",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "nonce": "81e617d3-bb21-456b-a45d-a739fdd79951",
+        "timestampStr": "1791792822",
+        "signature": "PXLEJKHrjrRi8SJcVN_L9_urKqWnDR61wNRG0m_fzV102toEnd4t9S8wBba_D8FfOkSXPkI4hOKKcFFLqivlYg",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -72,13 +69,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "6338d4ef-8d03-4e93-8c94-a80ee485e5b4",
-        "timestampStr": "1791418625",
+        "nonce": "adf72af0-34eb-4182-a98f-37e8dff2bc16",
+        "timestampStr": "1791792822",
         "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -92,13 +88,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hallo",
-        "nonce": "5f10b95f-94a4-4081-8237-465a500152f6",
-        "timestampStr": "1791418625",
-        "signature": "xWInogGBZbrau-KNk1I7m7fRLF1iqV61PoEpal78n0pd1-cX5tbRqhIvzLU3eikDK8IqfjPbpSEVfyLGnGDV6A",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "nonce": "abce8dc1-a768-4de4-ba97-a2e152b0436d",
+        "timestampStr": "1791792822",
+        "signature": "msBDbcNV8fV7wYsPPwtxTBh2E80LGyJj2wYnOik5Yhuwbqehaa_BopDCozRnv76d_ogMBEzOl1x3hi0MkMaHQw",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -112,13 +107,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "b4e53003-8b92-4c5e-a617-5b30bf3a2479",
+        "nonce": "6aba0081-afdb-433e-b70c-6586c9b4e9f9",
         "timestampStr": "100",
-        "signature": "u3ce2rL7dshEHx_k4spknz9UfuTxq9Td0Rgy2psZbOCparA63y_rd_b7pDtzQrzJrG-36GzkzwvuDvHIhUoV_A",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "signature": "_zOiaH2WmS_8PWJ4s3-ijEaQ8WGRfMS5id7QEKCjLK865C3hMCdy4G7JOw5e4MX-MkHeZGNkSdh-UX7Pxzemmg",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -132,13 +126,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "baf9e850-ffeb-4633-b846-a8934ca1af52",
-        "timestampStr": "1791418625",
-        "signature": "wQ8hvMyRRU7wL00TqDYGzJ4nuNyYRjn-NWnf5wlYLCSC7b3Q4Y0S_lzZjNzg6GpLXcbst7r9UGJkv3_wbYQZ6w",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "nonce": "1b3bd3a9-d07c-49ac-a823-827c99870203",
+        "timestampStr": "1791792822",
+        "signature": "nBxOU2TpcJYu5J7ZaNWdTZrkwVEUXjYgiC-3NvU1nvkmPtXirQl5MxtbclDCGZs6_NRtS9Qin_jSyuCBMonb_Q",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=wrong",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -152,13 +145,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "9d880498-5313-4c77-af8e-47fa94b3febc",
-        "timestampStr": "1791418625",
+        "nonce": "b559ba77-5ba8-4dcf-b7d4-877991717a87",
+        "timestampStr": "1791792822",
         "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=wrong",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -172,18 +164,17 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "ca885018-cc6d-4d0f-a43e-eadb70c27ee4",
-        "timestampStr": "1791418625",
-        "signature": "ZvqESOfEjK0-JGP8rJVYHS3t18v-SJVMqtw5NMKterXO79mNtysKXKwOzAVN-gQHXwGHzodVseMgEoCg4PbaQw",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "nonce": "ac143cba-e150-4673-9988-50f2afab9498",
+        "timestampStr": "1791792822",
+        "signature": "_JEb6ksn3K0Vx1KTvltWCxqN56fQHkkR34LmsCGFv92JhtFVhd8F0vCBK3phRXFHvupdKbfaSGG6GbMR08DauQ",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
-      "case": "Credential-ID 누락",
-      "desc": "X-FIDO2-Credential-ID 헤더 삭제",
+      "case": "필수 헤더(Nonce) 누락",
+      "desc": "X-FIDO2-Nonce 헤더 삭제",
       "status": 401,
       "detail": "Missing required FIDO2 PoP headers",
       "gw_stage": 1,
@@ -192,13 +183,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "394735c9-3bb2-4cf0-b6a0-a6904ed4e2c2",
-        "timestampStr": "1791418625",
-        "signature": "X2riXvIL23jKfZdHVR_ULJHpQkyuYIGEAbwrwmAilqv9-sbWWJfUvLesWO-aO6RQW5igZC1TGRSevE5FwB-Ghw",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "nonce": "",
+        "timestampStr": "1791792822",
+        "signature": "AJlTyUPTBO5rH497g9DMT78xBljRghbFK1m_C42FjLeGOwe-Z9H6qStg66uKKW61j23xhsYC9mu5W2a0Ib6OmA",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -212,18 +202,17 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "c5d5bf50-5edd-4509-8016-1468b6ea95da",
+        "nonce": "40eb10cf-6ea4-4ed3-aaa5-5360a2281ac0",
         "timestampStr": "100",
-        "signature": "iRIJ8xdP4wk40vTEu-Xsy8lxOaM_xvmz6qC2hqql8uymNH33AnC1l4p9Ii4bNoJLGUtTNJWlQdzun7Dg7p4BTw",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "signature": "j6XWOmtehBbKC4DDtJz3ZfUNlgqf0vAK_V9aUrHiLAQCOvK4afSlfnotF4uZmOJAulxWX0-W-uO_vjbpFkRRTA",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
-      "case": "복합: Credential-ID 누락 + 서명 오류",
-      "desc": "X-FIDO2-Credential-ID 헤더 삭제 + 서명 변조",
+      "case": "복합: 필수 헤더(Nonce) 누락 + 서명 오류",
+      "desc": "X-FIDO2-Nonce 헤더 삭제 + 서명 변조",
       "status": 401,
       "detail": "Missing required FIDO2 PoP headers",
       "gw_stage": 1,
@@ -232,13 +221,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "decd56d5-b0da-4cd1-8d03-94096a642c4d",
-        "timestampStr": "1791418625",
+        "nonce": "",
+        "timestampStr": "1791792822",
         "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "",
-        "evalTime": 1791418625
+        "evalTime": 1791792822
       }
     },
     {
@@ -252,13 +240,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hallo",
-        "nonce": "e19ae2de-d975-42d6-bb69-644070cb6335",
-        "timestampStr": "1791418626",
+        "nonce": "85f63ee3-6a71-4422-b5d6-8e286584c77d",
+        "timestampStr": "1791792822",
         "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "sha256=2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418626
+        "evalTime": 1791792822
       }
     },
     {
@@ -272,13 +259,12 @@
         "method": "POST",
         "urlStr": "https://testserver/api/v1/resource?a=1",
         "bodyStr": "hello",
-        "nonce": "c023a258-9ef4-4704-b48e-04e57d86dec6",
-        "timestampStr": "1791418626",
+        "nonce": "e4448fc0-7ae6-4fe0-a714-99001eb2c271",
+        "timestampStr": "1791792822",
         "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQ==",
-        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEj2f+DrCIA2psiRiBbFXfV7RbVu9x\nKdrf1LYiEg6tX+o4Y74u3X7yZQfiDg/sU0izUQZ8/UlB5jqapagjUQgfaA==\n-----END PUBLIC KEY-----\n",
+        "pubkeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQUVsFwd5TvjEvw6lh7Yvvnqr8fkk\nYXimDe/TKPAi3hXkK/7FdAcXJmJIu6TJxIH8ApX9zbijoHZ1fZASKuiguQ==\n-----END PUBLIC KEY-----\n",
         "reqDigest": "",
-        "credentialId": "xr4ADQw-qigaakeV5hOMZikg_Ov35FrYjLOiRnK8SPs",
-        "evalTime": 1791418626
+        "evalTime": 1791792822
       }
     }
   ]

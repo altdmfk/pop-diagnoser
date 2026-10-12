@@ -24,7 +24,7 @@
         digestPrefixStr: 'sha256=',
         signatureByteLength: 64,
         timestampToleranceSec: 60,
-        maxSearchNodes: 2000,
+        maxSearchNodes: 100,
         maxComboDepth: 3,
         headers: {
             nonce: 'X-FIDO2-Nonce',

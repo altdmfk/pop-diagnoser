@@ -16,14 +16,16 @@
     root.PopCore = Object.assign(root.PopCore || {}, mod);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (deps) {
     const {
-        _crypto,
         base64UrlDecode,
         base64StandardDecode,
         bytesToHex,
-        derToRaw,
+        containsPrivateKeyMarker,
+        extractPublicKeySpkiBytes,
+        parseDerSignature,
         PEM_PUBLIC_KEY_HEADER = '-----BEGIN PUBLIC KEY-----',
         PEM_PUBLIC_KEY_FOOTER = '-----END PUBLIC KEY-----'
     } = deps;
+    const _crypto = typeof crypto !== 'undefined' ? crypto : require('crypto').webcrypto;
 
     // NIST P-256 (secp256r1 / prime256v1) parameters
     const P256_P = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn;
@@ -87,12 +89,6 @@
         }, overrides);
     }
 
-    function containsPrivateKeyMarker(str) {
-        if (typeof str !== 'string') return false;
-        return /-----\s*(?:BEGIN|END)\s+[A-Z0-9 ]*PRIVATE KEY\s*-----/i.test(str) ||
-            /\bPRIVATE\s+KEY\b/i.test(str);
-    }
-
     function modP(val, p) {
         const r = val % p;
         return r >= 0n ? r : r + p;
@@ -115,6 +111,15 @@
                 encodingReason: '입력값이 비어 있습니다.',
                 bytes: null,
                 error: { code: 'EMPTY_SIGNATURE', message: '서명 문자열이 비어 있습니다.' }
+            };
+        }
+
+        if (containsPrivateKeyMarker(trimmed)) {
+            return {
+                encoding: 'unknown',
+                encodingReason: '비밀키(PRIVATE KEY) 헤더가 감지되었습니다.',
+                bytes: null,
+                error: { code: 'PRIVATE_KEY_REJECTED', message: '보안 경고: 비밀키(PRIVATE KEY)는 입력할 수 없습니다.' }
             };
         }
 
@@ -194,102 +199,7 @@
     }
 
     function inspectDerStructure(view) {
-        if (!view || view.length < 8 || view[0] !== 0x30) {
-            return { ok: false, message: 'DER SEQUENCE 시작 태그(0x30)가 없거나 길이가 너무 짧습니다.' };
-        }
-
-        let offset = 2;
-        let seqLen = view[1];
-        if (seqLen === 0x80) {
-            return { ok: false, message: 'DER Indefinite Length(0x80)는 허용되지 않습니다.' };
-        }
-        if (seqLen > 0x80) {
-            const numLenBytes = seqLen & 0x7f;
-            if (numLenBytes === 0 || numLenBytes > 2 || 2 + numLenBytes > view.length) {
-                return { ok: false, message: 'DER SEQUENCE 길이 헤더가 손상되었습니다.' };
-            }
-            seqLen = 0;
-            for (let i = 0; i < numLenBytes; i++) {
-                seqLen = (seqLen << 8) | view[2 + i];
-            }
-            offset = 2 + numLenBytes;
-        }
-        if (offset + seqLen !== view.length) {
-            return {
-                ok: false,
-                message: `DER SEQUENCE 선언 길이(${seqLen}B)와 실제 바이트 길이(${view.length - offset}B)가 일치하지 않습니다.`
-            };
-        }
-
-        // Parse r INTEGER
-        if (offset + 2 > view.length || view[offset] !== 0x02) {
-            return { ok: false, message: 'DER r 성분의 INTEGER 태그(0x02)를 찾을 수 없습니다.' };
-        }
-        const rOrigLen = view[offset + 1];
-        let rLen = rOrigLen;
-        let rStart = offset + 2;
-        if (rLen === 0 || rStart + rLen > view.length) {
-            return { ok: false, message: 'DER r 성분의 길이가 0이거나 범위를 벗어났습니다.' };
-        }
-        const sOffset = rStart + rLen;
-        let rLeadingZeroStripped = false;
-        if (view[rStart] === 0x00 && rLen > 1) {
-            if ((view[rStart + 1] & 0x80) === 0) {
-                return { ok: false, message: 'DER r 성분에 불필요한 선행 0x00 바이트(비최소 인코딩)가 포함되어 있습니다.' };
-            }
-            rStart++;
-            rLen--;
-            rLeadingZeroStripped = true;
-        }
-        if (rLen > 32) {
-            return { ok: false, message: `DER r 성분의 유효 길이(${rLen}B)가 P-256 최대 길이(32B)를 초과합니다.` };
-        }
-
-        // Parse s INTEGER
-        offset = sOffset;
-        if (offset + 2 > view.length || view[offset] !== 0x02) {
-            return { ok: false, message: 'DER s 성분의 INTEGER 태그(0x02)를 찾을 수 없습니다.' };
-        }
-        const sOrigLen = view[offset + 1];
-        let sLen = sOrigLen;
-        let sStart = offset + 2;
-        if (sLen === 0 || sStart + sLen !== view.length) {
-            return { ok: false, message: 'DER s 성분의 길이가 올바르지 않거나 뒤에 잔여 바이트가 남아 있습니다.' };
-        }
-        let sLeadingZeroStripped = false;
-        if (view[sStart] === 0x00 && sLen > 1) {
-            if ((view[sStart + 1] & 0x80) === 0) {
-                return { ok: false, message: 'DER s 성분에 불필요한 선행 0x00 바이트(비최소 인코딩)가 포함되어 있습니다.' };
-            }
-            sStart++;
-            sLen--;
-            sLeadingZeroStripped = true;
-        }
-        if (sLen > 32) {
-            return { ok: false, message: `DER s 성분의 유효 길이(${sLen}B)가 P-256 최대 길이(32B)를 초과합니다.` };
-        }
-
-        // Use derToRaw when both r > 0 and s > 0; also support r=0 or s=0 (02 01 00) for inspection
-        const rawFromCore = derToRaw(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength));
-        let rawBytes;
-        if (rawFromCore) {
-            rawBytes = new Uint8Array(rawFromCore);
-        } else {
-            rawBytes = new Uint8Array(64);
-            const rSlice = view.slice(rStart, rStart + rLen);
-            const sSlice = view.slice(sStart, sStart + sLen);
-            rawBytes.set(rSlice, 32 - rLen);
-            rawBytes.set(sSlice, 32 + (32 - sLen));
-        }
-
-        return {
-            ok: true,
-            rawBytes,
-            rLeadingZeroStripped,
-            sLeadingZeroStripped,
-            rDerLength: rOrigLen,
-            sDerLength: sOrigLen
-        };
+        return parseDerSignature(view);
     }
 
     function inspectSignature(sigStr) {
@@ -484,80 +394,21 @@
     }
 
     async function inspectPublicKey(pemStr) {
-        const raw = String(pemStr ?? '').trim();
-        if (containsPrivateKeyMarker(raw)) {
+        const extracted = extractPublicKeySpkiBytes(pemStr);
+        if (!extracted.ok) {
+            const extraMeta = extracted.code === 'UNSUPPORTED_ALGORITHM_RSA'
+                ? { algorithmOid: OID_RSA_ENCRYPTION, algorithmName: 'rsaEncryption (RSA PKCS#1)' }
+                : {};
             return createPubKeyFailReport({
-                warnings: [
-                    {
-                        code: 'PRIVATE_KEY_INPUT',
-                        message: '비밀키(PRIVATE KEY)가 감지되어 파싱을 중단했습니다. 본 진단기는 비밀키를 요구하지 않으며 공개키(PUBLIC KEY)만 사용합니다.'
-                    }
-                ],
+                ...extraMeta,
+                warnings: extracted.warnings || [],
                 error: {
-                    code: 'PRIVATE_KEY_REJECTED',
-                    message: `보안 경고: 비밀키(PRIVATE KEY)는 입력할 수 없습니다. 공개키(${PEM_PUBLIC_KEY_HEADER})만 입력해 주세요.`
+                    code: extracted.code,
+                    message: extracted.message
                 }
             });
         }
-
-        if (!raw) {
-            return createPubKeyFailReport({
-                error: { code: 'EMPTY_PUBLIC_KEY', message: '공개키 입력값이 비어 있습니다.' }
-            });
-        }
-
-        if (/-----\s*BEGIN RSA PUBLIC KEY\s*-----/i.test(raw)) {
-            return createPubKeyFailReport({
-                algorithmOid: OID_RSA_ENCRYPTION,
-                algorithmName: 'rsaEncryption (RSA PKCS#1)',
-                error: {
-                    code: 'UNSUPPORTED_ALGORITHM_RSA',
-                    message: 'RSA 공개키(PKCS#1)는 지원하지 않습니다. FIDO2 PoP 게이트웨이는 ECDSA P-256 공개키(SPKI)만 지원합니다.'
-                }
-            });
-        }
-
-        const hasHeader = raw.includes(PEM_PUBLIC_KEY_HEADER);
-        const hasFooter = raw.includes(PEM_PUBLIC_KEY_FOOTER);
-        let b64Body = '';
-
-        if (hasHeader && hasFooter) {
-            const startIdx = raw.indexOf(PEM_PUBLIC_KEY_HEADER) + PEM_PUBLIC_KEY_HEADER.length;
-            const endIdx = raw.indexOf(PEM_PUBLIC_KEY_FOOTER);
-            if (endIdx < startIdx) {
-                return createPubKeyFailReport({
-                    error: { code: 'INVALID_PEM_FORMAT', message: '공개키 PEM 헤더와 푸터의 순서가 올바르지 않습니다.' }
-                });
-            }
-            b64Body = raw.substring(startIdx, endIdx).replace(/\s/g, '');
-        } else if (!hasHeader && !hasFooter && !/-----/.test(raw)) {
-            b64Body = raw.replace(/\s/g, '');
-        } else {
-            return createPubKeyFailReport({
-                error: {
-                    code: 'INVALID_PEM_FORMAT',
-                    message: `공개키 PEM 헤더(${PEM_PUBLIC_KEY_HEADER}) 또는 푸터(${PEM_PUBLIC_KEY_FOOTER})가 누락되었거나 손상되었습니다.`
-                }
-            });
-        }
-
-        if (!b64Body) {
-            return createPubKeyFailReport({
-                error: { code: 'EMPTY_PUBLIC_KEY', message: '공개키 PEM 내부의 Base64 데이터가 비어 있습니다.' }
-            });
-        }
-
-        let spkiBytes;
-        try {
-            spkiBytes = new Uint8Array(base64StandardDecode(b64Body));
-        } catch (e) {
-            return createPubKeyFailReport({
-                error: {
-                    code: 'INVALID_BASE64',
-                    message: '공개키 Base64 디코딩에 실패했습니다. 허용되지 않는 문자나 손상된 패딩이 있는지 확인하세요.'
-                }
-            });
-        }
+        const spkiBytes = extracted.spkiBytes;
 
         const hashBuffer = await _crypto.subtle.digest('SHA-256', spkiBytes);
         const fingerprint = bytesToHex(hashBuffer);
@@ -730,6 +581,8 @@
         OID_EC_PUBLIC_KEY,
         OID_RSA_ENCRYPTION,
         OID_P256,
+        detectAndDecodeSignature,
+        inspectDerStructure,
         inspectSignature,
         inspectPublicKey
     };

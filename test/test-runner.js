@@ -10,9 +10,9 @@ console.log = function (...args) {
 };
 
 window.addEventListener('DOMContentLoaded', () => {
-    if (typeof window.FIXTURES !== 'undefined' && typeof window.runTests === 'function') {
+    if ((typeof window.PopTestFixtures !== 'undefined' || typeof window.FIXTURES !== 'undefined') && typeof window.runTests === 'function') {
         window.runTests().catch(console.error);
     } else {
-        console.log("[ERROR] FIXTURES or runTests not loaded");
+        console.log("[ERROR] PopTestFixtures or runTests not loaded");
     }
 });

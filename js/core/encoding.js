@@ -27,10 +27,10 @@
     }
 
     function base64UrlDecode(base64url) {
-        if (typeof base64url !== 'string' || !/^[A-Za-z0-9\-_]+={0,2}$/.test(base64url)) {
+        if (typeof base64url !== 'string' || !/^[A-Za-z0-9\-_]+$/.test(base64url)) {
             throw new Error("Invalid base64url format");
         }
-        let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+        let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
         if (base64.length % 4 === 1) {
             throw new Error("Invalid base64url length");
         }
@@ -76,10 +76,6 @@
     }
 
     return {
-        _atob,
-        _btoa,
-        _crypto,
-        binaryStringToBytes,
         bytesToBinaryString,
         base64UrlDecode,
         base64StandardDecode,

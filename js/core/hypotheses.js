@@ -79,13 +79,18 @@
             cause: "Host 헤더에 기본 HTTPS 포트 번호(':443')가 잘못 붙었거나 누락되어 서명되었습니다.",
             solution: "FIDO2 PoP 게이트웨이는 Host에 포트 번호(':443') 없이 도메인 이름만 사용합니다. 서명 대상 Host 값에서 ':443'을 제거하세요.",
             apply: async (req) => {
-                let newHost = req.host;
-                if (newHost.includes(':')) {
-                    newHost = newHost.split(':')[0];
-                } else {
-                    newHost = newHost + ':443';
+                const host = String(req.host || '');
+                if (!host || host.startsWith('[') || host.includes(']')) {
+                    return req;
                 }
-                return { ...req, host: newHost };
+                const colonIdx = host.indexOf(':');
+                if (colonIdx === -1) {
+                    return { ...req, host: host + ':443' };
+                }
+                if (host.slice(colonIdx) === ':443') {
+                    return { ...req, host: host.slice(0, colonIdx) };
+                }
+                return req;
             }
         },
         {
@@ -122,12 +127,16 @@
             label: '항목 구분 또는 본문 줄바꿈을 CRLF(\\r\\n)로 사용',
             tag: 'paper-rule',
             stage: 'both',
-            cause: "항목 구분자 또는 본문에 윈도우 스타일 줄바꿈(CRLF, '\\r\\n')이 사용되었습니다.",
+            cause: "항목 구분자 또는 본문에 윈도우 스타일 줄바꿈(CRLF, '\\r\\n')이 사용되었거나 본문 줄바꿈(LF ↔ CRLF)이 해시 계산 시점과 달라졌습니다.",
             solution: "FIDO2 PoP 게이트웨이는 Unix 스타일 줄바꿈(LF, '\\n')만을 허용합니다. 서명 대상 문자열 및 본문 해시 계산 전에 모든 '\\r\\n'을 '\\n'으로 정규화하세요.",
             apply: async (req, stage) => {
                 if (stage === STAGE_IDS.DIGEST) {
-                    const crlfBody = req.rawBody.replace(/\r?\n/g, '\r\n');
-                    return { ...req, bodyHash: await hashString(crlfBody) };
+                    const rawBody = String(req.rawBody ?? '');
+                    const toggledBody = rawBody.includes('\r\n')
+                        ? rawBody.replace(/\r\n/g, '\n')
+                        : rawBody.replace(/\n/g, '\r\n');
+                    if (toggledBody === rawBody) return req;
+                    return { ...req, rawBody: toggledBody, bodyHash: await hashString(toggledBody) };
                 }
                 return { ...req, delimiter: '\r\n' };
             }
@@ -142,7 +151,7 @@
             apply: async (req, stage) => {
                 if (stage === STAGE_IDS.DIGEST) {
                     const trailingBody = req.rawBody + '\n';
-                    return { ...req, bodyHash: await hashString(trailingBody) };
+                    return { ...req, rawBody: trailingBody, bodyHash: await hashString(trailingBody) };
                 }
                 return { ...req, trailingNewline: true };
             }
@@ -181,10 +190,14 @@
             stage: STAGE_IDS.DIGEST,
             cause: "본문 앞부분에 보이지 않는 UTF-8 BOM('\\uFEFF', 0xEF 0xBB 0xBF) 바이트가 포함된 채 해시되었습니다.",
             solution: "본문 앞에 BOM이 붙지 않도록 BOM 없는 UTF-8(UTF-8 without BOM)으로 저장 및 전송하세요.",
-            apply: async (req) => ({
-                ...req,
-                bodyHash: await hashString('\uFEFF' + req.rawBody)
-            })
+            apply: async (req) => {
+                const bomBody = '\uFEFF' + req.rawBody;
+                return {
+                    ...req,
+                    rawBody: bomBody,
+                    bodyHash: await hashString(bomBody)
+                };
+            }
         },
         {
             id: 'body-reserialized-nospace',
@@ -195,8 +208,9 @@
             solution: "본문 해시(X-Body-Digest)는 가공된 JSON이 아니라 네트워크로 실제 전송되는 본문 바이트 원본 그대로 해시해야 합니다.",
             apply: async (req) => {
                 try {
-                    const parsed = JSON.parse(req.rawBody);
-                    return { ...req, bodyHash: await hashString(JSON.stringify(parsed)) };
+                    const compactBody = JSON.stringify(JSON.parse(req.rawBody));
+                    if (compactBody === req.rawBody) return req;
+                    return { ...req, rawBody: compactBody, bodyHash: await hashString(compactBody) };
                 } catch (e) {
                     return req;
                 }
