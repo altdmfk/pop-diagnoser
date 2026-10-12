@@ -3322,6 +3322,36 @@ async function runTests() {
                 failed++;
             }
         }
+
+        // 43) Hypothesis cause/solution accuracy (newline-trailing last canonical field Timestamp + Stage 4/5 coverage, host-rewritten bidirectional :443 guidance)
+        {
+            const canonicalFields = PopCore.PaperProfile.canonicalFields;
+            const lastCanonicalField = canonicalFields[canonicalFields.length - 1];
+            const nlTrailingHyp = PopCore.HYPOTHESES.find(h => h.id === 'newline-trailing');
+            const hostRewrittenHyp = PopCore.HYPOTHESES.find(h => h.id === 'host-rewritten');
+
+            const nlTrailingAccurate =
+                Boolean(nlTrailingHyp) &&
+                lastCanonicalField === 'timestamp' &&
+                !nlTrailingHyp.solution.includes('마지막 항목(Body-Digest)') &&
+                /Timestamp/i.test(nlTrailingHyp.solution) &&
+                (nlTrailingHyp.cause.includes('본문') || nlTrailingHyp.solution.includes('본문')) &&
+                (nlTrailingHyp.cause.includes('4단계') || nlTrailingHyp.solution.includes('4단계')) &&
+                (nlTrailingHyp.cause.includes('5단계') || nlTrailingHyp.solution.includes('5단계'));
+
+            const hostRewrittenAccurate =
+                Boolean(hostRewrittenHyp) &&
+                hostRewrittenHyp.solution.includes(':443') &&
+                hostRewrittenHyp.solution.includes('일치') &&
+                !hostRewrittenHyp.solution.includes('포트 번호(\':443\') 없이 도메인 이름만 사용합니다');
+
+            if (nlTrailingAccurate && hostRewrittenAccurate) {
+                passed++;
+            } else {
+                console.log(`[FAIL] hypothesis-guide-text-accuracy: nlTrailingAccurate=${nlTrailingAccurate}, hostRewrittenAccurate=${hostRewrittenAccurate}`);
+                failed++;
+            }
+        }
     }
 
     const total = passed + failed + skipped;

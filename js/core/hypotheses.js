@@ -76,8 +76,8 @@
             label: 'Host 기본 포트(:443) 누락 또는 추가',
             tag: 'common-mistake',
             stage: STAGE_IDS.SIGNATURE,
-            cause: "Host 헤더에 기본 HTTPS 포트 번호(':443')가 잘못 붙었거나 누락되어 서명되었습니다.",
-            solution: "FIDO2 PoP 게이트웨이는 Host에 포트 번호(':443') 없이 도메인 이름만 사용합니다. 서명 대상 Host 값에서 ':443'을 제거하세요.",
+            cause: "요청 URL(또는 프록시가 전달한 Host 헤더)과 서명 대상 문자열의 Host 항목 간에 기본 HTTPS 포트 번호(':443') 표기 유무가 일치하지 않습니다.",
+            solution: "실제 요청 URL(Host 헤더)의 ':443' 포트 표기 유무와 서명 대상 문자열(2번째 줄 Host 항목)의 표기를 일치시키세요. 요청 URL에 ':443'이 없다면 서명 대상에서도 ':443'을 제거하고, 요청 URL에 ':443'이 명시되어 있다면 서명 대상에도 동일하게 포함하거나 양쪽 모두에서 제거하세요.",
             apply: async (req) => {
                 const host = String(req.host || '');
                 if (!host || host.startsWith('[') || host.includes(']')) {
@@ -98,7 +98,7 @@
             label: '서명이 DER 형식으로 인코딩됨',
             tag: 'encoding',
             stage: STAGE_IDS.SIGNATURE,
-            cause: "서명값이 ECDSA 기본 ASN.1 DER 형식(약 70~72바이트)으로 전송되었습니다.",
+            cause: "서명값이 ECDSA 기본 ASN.1 DER 형식(예: 68~72바이트)으로 전송되었습니다.",
             solution: "FIDO2 PoP 게이트웨이는 IEEE P1363 Raw(64바이트: r 32바이트 + s 32바이트) 형식을 요구합니다. 클라이언트 서명 라이브러리에서 DER 헤더를 제거하고 r과 s를 각각 32바이트 고정 길이로 추출해 이어 붙인 뒤(총 64바이트) Base64url 인코딩하세요.",
             apply: async (req) => {
                 const raw = derToRaw(req.rawSignature);
@@ -127,8 +127,8 @@
             label: '항목 구분 또는 본문 줄바꿈을 CRLF(\\r\\n)로 사용',
             tag: 'paper-rule',
             stage: 'both',
-            cause: "항목 구분자 또는 본문에 윈도우 스타일 줄바꿈(CRLF, '\\r\\n')이 사용되었거나 본문 줄바꿈(LF ↔ CRLF)이 해시 계산 시점과 달라졌습니다.",
-            solution: "FIDO2 PoP 게이트웨이는 Unix 스타일 줄바꿈(LF, '\\n')만을 허용합니다. 서명 대상 문자열 및 본문 해시 계산 전에 모든 '\\r\\n'을 '\\n'으로 정규화하세요.",
+            cause: "4단계 서명 대상 문자열의 항목 구분자 또는 5단계 본문에 윈도우 스타일 줄바꿈(CRLF, '\\r\\n')이 사용되었거나 본문 줄바꿈(LF ↔ CRLF)이 해시 계산 시점과 달라졌습니다.",
+            solution: "4단계(서명 검증)에서는 항목 구분자로 반드시 Unix 스타일 줄바꿈(LF, '\\n')을 사용하고, 5단계(다이제스트)에서는 해시 계산 대상 본문과 실제 전송 본문의 줄바꿈 형식('\\n' vs '\\r\\n')을 일치시키거나 양쪽 모두 '\\n'으로 정규화하세요.",
             apply: async (req, stage) => {
                 if (stage === STAGE_IDS.DIGEST) {
                     const rawBody = String(req.rawBody ?? '');
@@ -146,8 +146,8 @@
             label: '마지막에 줄바꿈(\\n) 추가',
             tag: 'paper-rule',
             stage: 'both',
-            cause: "서명 대상 문자열 맨 끝에 불필요한 줄바꿈('\\n')이 한 번 더 추가되었습니다.",
-            solution: "서명 대상 문자열의 맨 마지막 줄 뒤에는 줄바꿈('\\n')을 추가하지 않아야 합니다. 마지막 항목(Body-Digest) 뒤의 줄바꿈을 제거하세요.",
+            cause: "4단계 서명 대상 문자열(Canonical String)의 마지막 항목(Timestamp) 뒤 또는 5단계 요청 본문(Body) 맨 끝에 불필요한 줄바꿈('\\n')이 추가된 상태로 서명·해시되었습니다.",
+            solution: "4단계(서명 검증) 실패 시 서명 대상 문자열의 마지막 항목인 Timestamp(7번째 줄) 뒤의 줄바꿈('\\n')을 제거하세요. 5단계(다이제스트) 실패 시 본문 해시 계산 대상과 실제 전송 본문 끝의 줄바꿈('\\n') 포함 여부를 일치시키세요.",
             apply: async (req, stage) => {
                 if (stage === STAGE_IDS.DIGEST) {
                     const trailingBody = req.rawBody + '\n';
@@ -173,7 +173,7 @@
             label: '본문 해시를 대문자 Hex로 인코딩',
             tag: 'encoding',
             stage: STAGE_IDS.DIGEST,
-            cause: "본문 해시(X-Body-Digest)가 대문자 Hex로 인코딩되었습니다.",
+            cause: "본문 해시(X-Body-Digest)가 대문자(또는 대소문자 혼합) 16진수(Hex)로 인코딩되었습니다.",
             solution: "본문 해시는 반드시 소문자 16진수(Hex, '0-9a-f')를 사용해야 합니다. 해시값을 소문자로 변환하세요.",
             apply: async (req) => {
                 const lowerHex = await hashString(req.rawBody);
