@@ -50,8 +50,6 @@ async function runTests() {
                     if (c.expected.type === 'match' && matchedSet && matchedSet.item) {
                         actualIdStr = matchedSet.item.idStr;
                     }
-                } else if (result.hypothesisResult.type === 'match') {
-                    actualIdStr = result.hypothesisResult.idStr;
                 }
                 if (actualIdStr !== c.expected.idStr) {
                     console.log(`[FAIL] ${c.name}: Expected idStr ${c.expected.idStr}, got ${actualIdStr}`);
@@ -65,16 +63,16 @@ async function runTests() {
 
     const validSig = fixtures.cases[0].signature;
 
-    // Input error tests
+    // Input error tests with machine-readable error codes
     const inputTests = [
         { name: "empty-inputs", inputs: {}, expectError: false, expectedStage: 1 },
-        { name: "bad-url", inputs: { method: "POST", urlStr: "not-a-url", nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: "A" }, expectError: true },
-        { name: "bad-pubkey", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: "bad-pem" }, expectError: true },
-        { name: "bad-signature", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "1", signature: "+++", pubkeyPem: pubkeyPem }, expectError: true },
-        { name: "bad-timestamp", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "abc", signature: validSig, pubkeyPem: pubkeyPem }, expectError: true },
-        { name: "bad-signature-length", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "1", signature: "abcde", pubkeyPem: pubkeyPem }, expectError: true },
+        { name: "bad-url", inputs: { method: "POST", urlStr: "not-a-url", nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: "A" }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_URL },
+        { name: "bad-pubkey", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: "bad-pem" }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_PUBKEY },
+        { name: "bad-signature", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "1", signature: "+++", pubkeyPem: pubkeyPem }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_SIGNATURE_ENCODING },
+        { name: "bad-timestamp", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "abc", signature: validSig, pubkeyPem: pubkeyPem }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_TIMESTAMP },
+        { name: "bad-signature-length", inputs: { method: "POST", urlStr: "https://a.com/", nonce: "1", timestampStr: "1", signature: "abcde", pubkeyPem: pubkeyPem }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_SIGNATURE_ENCODING },
         { name: "missing-nonce", inputs: { method: "POST", urlStr: "https://a.com/", timestampStr: "1", signature: validSig, pubkeyPem: pubkeyPem }, expectError: false, expectedStage: 1 },
-        { name: "bad-json", inputs: { method: "POST", urlStr: "https://a.com/", bodyStr: "{bad json}", nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: pubkeyPem }, expectError: true },
+        { name: "bad-json", inputs: { method: "POST", urlStr: "https://a.com/", bodyStr: "{bad json}", nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: pubkeyPem }, expectError: true, expectedCode: PopCore.ERROR_CODES.INVALID_JSON },
         { name: "long-input", inputs: { method: "POST", urlStr: "https://a.com/", bodyStr: JSON.stringify({ data: "A".repeat(100000) }), nonce: "1", timestampStr: "1", signature: validSig, pubkeyPem: pubkeyPem }, expectError: false }
     ];
 
@@ -86,6 +84,10 @@ async function runTests() {
             ok = false;
         } else if (!t.expectError && result.error) {
             console.log(`[FAIL] ${t.name}: Expected no error, got: ${result.error.message}`);
+            ok = false;
+        }
+        if (t.expectedCode && (!result.error || result.error.code !== t.expectedCode)) {
+            console.log(`[FAIL] ${t.name}: Expected error code ${t.expectedCode}, got ${result.error ? result.error.code : 'none'}`);
             ok = false;
         }
         if (t.expectedStage !== undefined && result.firstFailedStage !== t.expectedStage) {
@@ -105,21 +107,13 @@ async function runTests() {
         ["sign", "verify"]
     );
     const spki = await _crypto.subtle.exportKey("spki", keyPair.publicKey);
-    const spkiB64 = _btoa(String.fromCharCode(...new Uint8Array(spki)));
-    const dynPubkeyPem = `-----BEGIN PUBLIC KEY-----\n${spkiB64.match(/.{1,64}/g).join('\n')}\n-----END PUBLIC KEY-----`;
+    const spkiB64 = _btoa(PopCore.bytesToBinaryString(spki));
+    const dynPubkeyPem = `${PopCore.PEM_PUBLIC_KEY_HEADER}\n${spkiB64.match(/.{1,64}/g).join('\n')}\n${PopCore.PEM_PUBLIC_KEY_FOOTER}`;
 
-    async function sha256Hex(str) {
-        const buf = await _crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    function toBase64Url(buf) {
-        return _btoa(String.fromCharCode(...new Uint8Array(buf)))
-            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    }
-
+    const sha256Hex = PopCore.hashString;
+    const toBase64Url = PopCore.base64UrlEncodeBytes;
     function toStandardBase64(buf) {
-        return _btoa(String.fromCharCode(...new Uint8Array(buf)));
+        return _btoa(PopCore.bytesToBinaryString(buf));
     }
 
     async function signRaw(canonicalStr) {
@@ -725,7 +719,7 @@ async function runTests() {
 
             const allLabelsHaveFor = labelTagMatches.length > 0 && labelTagMatches.length === labelForIds.length;
             const allTargetsExist = labelForIds.every(targetId => allIds.has(targetId));
-            const reqUrlHasAriaLabel = /<input\b[^>]*\bid="req-url"[^>]*\baria-label="요청 URL"/.test(html);
+            const reqUrlHasAriaLabel = /<input\b[^>]*\bid="req-url"[^>]*\baria-label="[^"]+"/.test(html);
 
             if (allLabelsHaveFor && allTargetsExist && reqUrlHasAriaLabel) {
                 passed++;
@@ -1250,7 +1244,7 @@ async function runTests() {
                 lfRes.inputs.bodyStr === '{\n  "amount": 1000\n}' &&
                 brokenParsed.ok === true &&
                 brokenDiag.error &&
-                brokenDiag.error.message.includes('올바른 JSON 형식이 아닙니다') &&
+                brokenDiag.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
                 brokenDiag.error.detail.includes('▲')
             ) {
                 passed++;
@@ -1374,7 +1368,8 @@ async function runTests() {
                 try {
                     const banner = createImporterMockNode('DIV');
                     PopUI.renderImportStatus(banner, xssParsed);
-                    importerUiSafe = !importerInnerHtmlUsed && banner.textContent.includes('채워진 필드');
+                    importerUiSafe = !importerInnerHtmlUsed &&
+                        banner.children.some(c => c.className === 'import-report import-report-ok');
                 } finally {
                     global.document = prevDoc;
                 }
@@ -1389,6 +1384,139 @@ async function runTests() {
                 passed++;
             } else {
                 console.log("[FAIL] curl-xss-regression: cURL parser altered HTML payload or importer UI used innerHTML");
+                failed++;
+            }
+        }
+
+        // 22) JSON error detection & smart hint unit and integration tests
+        {
+            const userCaseBody = '\n  "amount": 1000,\n  "to": "alice"\n}';
+            const userCaseRes = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx",
+                bodyStr: userCaseBody,
+                nonce: "n1",
+                timestampStr: "1700000000",
+                signature: validSig,
+                pubkeyPem: fixtures.public_key
+            });
+
+            const missingClosingRes = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx",
+                bodyStr: '{\n  "amount": 1000',
+                nonce: "n1",
+                timestampStr: "1700000000",
+                signature: validSig,
+                pubkeyPem: fixtures.public_key
+            });
+
+            const trailingCommaRes = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx",
+                bodyStr: '{\n  "amount": 1000,\n}',
+                nonce: "n1",
+                timestampStr: "1700000000",
+                signature: validSig,
+                pubkeyPem: fixtures.public_key
+            });
+
+            const singleQuoteRes = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx",
+                bodyStr: "{\n  'amount': 1000\n}",
+                nonce: "n1",
+                timestampStr: "1700000000",
+                signature: validSig,
+                pubkeyPem: fixtures.public_key
+            });
+
+            const unquotedKeyRes = await PopCore.diagnose({
+                method: "POST",
+                urlStr: "https://api.example.com/v1/tx",
+                bodyStr: "{\n  amount: 1000\n}",
+                nonce: "n1",
+                timestampStr: "1700000000",
+                signature: validSig,
+                pubkeyPem: fixtures.public_key
+            });
+
+            const userCaseOk =
+                userCaseRes.error &&
+                userCaseRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
+                userCaseRes.error.hintCode === PopCore.JSON_HINT_CODES.MISSING_OPEN_BRACE &&
+                typeof userCaseRes.error.hint === 'string' &&
+                userCaseRes.error.detail.includes('▲');
+
+            const missingClosingOk =
+                missingClosingRes.error &&
+                missingClosingRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
+                missingClosingRes.error.hintCode === PopCore.JSON_HINT_CODES.MISSING_CLOSE_BRACE &&
+                typeof missingClosingRes.error.hint === 'string';
+
+            const trailingCommaOk =
+                trailingCommaRes.error &&
+                trailingCommaRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
+                trailingCommaRes.error.hintCode === PopCore.JSON_HINT_CODES.TRAILING_COMMA &&
+                typeof trailingCommaRes.error.hint === 'string';
+
+            const singleQuoteOk =
+                singleQuoteRes.error &&
+                singleQuoteRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
+                singleQuoteRes.error.hintCode === PopCore.JSON_HINT_CODES.SINGLE_QUOTE &&
+                typeof singleQuoteRes.error.hint === 'string';
+
+            const unquotedKeyOk =
+                unquotedKeyRes.error &&
+                unquotedKeyRes.error.code === PopCore.ERROR_CODES.INVALID_JSON &&
+                unquotedKeyRes.error.hintCode === PopCore.JSON_HINT_CODES.UNQUOTED_KEY &&
+                typeof unquotedKeyRes.error.hint === 'string';
+
+            if (userCaseOk && missingClosingOk && trailingCommaOk && singleQuoteOk && unquotedKeyOk) {
+                passed++;
+            } else {
+                console.log("[FAIL] json-error-smart-hints: Failed JSON error diagnosis or smart hint generation");
+                failed++;
+            }
+        }
+
+        // 23) Hypotheses actionable cause & solution guidance verification
+        {
+            const allHypothesesHaveGuide = PopCore.HYPOTHESES.every(h => {
+                return typeof h.cause === 'string' && h.cause.length > 5 &&
+                       typeof h.solution === 'string' && h.solution.length > 5;
+            });
+
+            const derCase = fixtures.cases.find(c => c.name === 'sig-der');
+            const derRes = await PopCore.diagnose({
+                method: derCase.method,
+                urlStr: `https://${derCase.host}${derCase.path}?${derCase.query}`,
+                bodyStr: derCase.body,
+                nonce: derCase.nonce,
+                timestampStr: String(derCase.timestamp),
+                signature: derCase.signature,
+                pubkeyPem: fixtures.public_key,
+                evalTime: derCase.evalTime,
+                reqDigest: derCase.digest
+            });
+
+            const derHypMatch = derRes.hypothesisResult &&
+                               derRes.hypothesisResult.type === 'found' &&
+                               derRes.hypothesisResult.sets.length > 0 &&
+                               derRes.hypothesisResult.sets[0].item &&
+                               derRes.hypothesisResult.sets[0].item.history[0];
+
+            const expectedDerHyp = PopCore.HYPOTHESES.find(h => h.id === 'sig-der');
+            const derGuideOk = derHypMatch &&
+                               expectedDerHyp &&
+                               derHypMatch.id === 'sig-der' &&
+                               derHypMatch.cause === expectedDerHyp.cause &&
+                               derHypMatch.solution === expectedDerHyp.solution;
+
+            if (allHypothesesHaveGuide && derGuideOk) {
+                passed++;
+            } else {
+                console.log("[FAIL] hypotheses-actionable-guide: Missing cause/solution in hypothesis catalog or diagnose result");
                 failed++;
             }
         }
