@@ -19,7 +19,7 @@
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = mod;
     }
-    root.PopCore = mod;
+    root.PopCore = Object.assign(root.PopCore || {}, mod);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (deps) {
     const {
         STAGE_IDS = { HEADERS: 1, TIMESTAMP: 2, NONCE: 3, SIGNATURE: 4, DIGEST: 5 },
@@ -29,9 +29,12 @@
         base64StandardDecode,
         base64UrlEncodeBytes,
         hashString,
+        hashStringToBase64Url,
         bytesToHex,
         PEM_PUBLIC_KEY_HEADER,
         PEM_PUBLIC_KEY_FOOTER,
+        extractPublicKeySpkiBytes,
+        parseDerSignature,
         importPublicKey,
         derToRaw,
         verifySig,
@@ -853,7 +856,7 @@
         };
     }
 
-    // 명시적 공개 API 목록만 노출 (_atob, _btoa, _crypto, binaryStringToBytes 등 내부 헬퍼 및 미사용 심볼 제외)
+    // 명시적 공개 API 목록만 노출 (_atob, _btoa, _crypto, binaryStringToBytes 등 내부 헬퍼 제외)
     return {
         diagnose,
         validateJsonBody,
@@ -861,15 +864,22 @@
         ERROR_CODES,
         STAGE_CODES,
         WARNING_CODES,
+        STAGE_IDS,
         PaperProfile,
         HYPOTHESES,
+        buildString,
+        verifySig,
+        generateKeyPairAndSign,
         JSON_HINT_CODES,
         detectJsonErrorHint,
         extractJsonErrorLocation,
+        detectAndDecodeSignature,
         inspectSignature,
         inspectPublicKey,
         parseCurl,
         parseRawHttp,
+        extractPublicKeySpkiBytes,
+        parseDerSignature,
         importPublicKey,
         derToRaw,
         PEM_PUBLIC_KEY_HEADER,
@@ -879,6 +889,7 @@
         base64UrlEncodeBytes,
         bytesToHex,
         bytesToBinaryString,
-        hashString
+        hashString,
+        hashStringToBase64Url
     };
 });

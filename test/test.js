@@ -3211,6 +3211,117 @@ async function runTests() {
                 failed++;
             }
         }
+
+        // 42) Browser global load order & PopCore public symbol preservation (STAGE_IDS, buildString, verifySig, etc.)
+        {
+            const expectedSymbols = [
+                'STAGE_IDS',
+                'PaperProfile',
+                'buildString',
+                'verifySig',
+                'generateKeyPairAndSign',
+                'derToRaw',
+                'importPublicKey',
+                'extractPublicKeySpkiBytes',
+                'parseDerSignature',
+                'detectAndDecodeSignature',
+                'inspectSignature',
+                'inspectPublicKey',
+                'parseCurl',
+                'parseRawHttp',
+                'HYPOTHESES',
+                'JSON_HINT_CODES',
+                'detectJsonErrorHint',
+                'extractJsonErrorLocation',
+                'diagnose',
+                'validateJsonBody',
+                'generateTestSignature',
+                'ERROR_CODES',
+                'STAGE_CODES',
+                'WARNING_CODES',
+                'PEM_PUBLIC_KEY_HEADER',
+                'PEM_PUBLIC_KEY_FOOTER',
+                'base64UrlDecode',
+                'base64StandardDecode',
+                'base64UrlEncodeBytes',
+                'bytesToHex',
+                'bytesToBinaryString',
+                'hashString',
+                'hashStringToBase64Url'
+            ];
+            const forbiddenInternalSymbols = ['_atob', '_btoa', '_crypto', 'binaryStringToBytes'];
+
+            const directPopCoreOk =
+                expectedSymbols.every(sym => PopCore[sym] !== undefined) &&
+                forbiddenInternalSymbols.every(sym => PopCore[sym] === undefined);
+
+            let browserVmOk = true;
+            if (typeof window === 'undefined') {
+                const fs = require('fs');
+                const path = require('path');
+                const vm = require('vm');
+                const rootDir = path.join(__dirname, '..');
+                const ctx = vm.createContext({
+                    console,
+                    crypto: _crypto,
+                    atob: typeof atob !== 'undefined' ? atob : (s) => Buffer.from(s, 'base64').toString('binary'),
+                    btoa: _btoa,
+                    TextEncoder,
+                    TextDecoder,
+                    Uint8Array,
+                    ArrayBuffer,
+                    URL,
+                    Date,
+                    Math,
+                    BigInt,
+                    Set,
+                    Map,
+                    Promise,
+                    Error,
+                    String,
+                    Number,
+                    Boolean,
+                    Array,
+                    Object,
+                    RegExp,
+                    JSON,
+                    parseInt,
+                    isNaN,
+                    setTimeout,
+                    clearTimeout
+                });
+                ctx.window = ctx;
+                ctx.globalThis = ctx;
+
+                const scriptOrder = [
+                    'js/core/profiles/paper.js',
+                    'js/core/encoding.js',
+                    'js/core/ecdsa.js',
+                    'js/core/inspect.js',
+                    'js/core/curlParser.js',
+                    'js/core/canonical.js',
+                    'js/core/hypotheses.js',
+                    'js/core/jsonError.js',
+                    'js/core/diagnose.js'
+                ];
+                for (const relPath of scriptOrder) {
+                    const code = fs.readFileSync(path.join(rootDir, relPath), 'utf8');
+                    vm.runInContext(code, ctx, { filename: relPath });
+                }
+
+                browserVmOk =
+                    Boolean(ctx.PopCore) &&
+                    expectedSymbols.every(sym => ctx.PopCore[sym] !== undefined) &&
+                    forbiddenInternalSymbols.every(sym => ctx.PopCore[sym] === undefined);
+            }
+
+            if (directPopCoreOk && browserVmOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] popcore-global-symbols-preservation: directPopCoreOk=${directPopCoreOk}, browserVmOk=${browserVmOk}`);
+                failed++;
+            }
+        }
     }
 
     const total = passed + failed + skipped;
