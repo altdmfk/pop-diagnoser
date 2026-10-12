@@ -133,6 +133,7 @@
         const val = String(rawStr ?? '');
         el.value = val;
         el._rawBody = val;
+        delete el._contentType;
     }
 
     function readRequestBody(el) {
@@ -164,6 +165,7 @@
                 const val = parseResult.inputs[item.key] ?? '';
                 if (item.key === 'bodyStr') {
                     setRawTextareaValue(el, val);
+                    el._contentType = String(parseResult.inputs.contentType ?? '');
                 } else {
                     el.value = val;
                 }

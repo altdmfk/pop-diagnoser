@@ -45,6 +45,11 @@
             return typeof readRequestBody === 'function' ? readRequestBody(bodyEl) : bodyEl.value;
         };
 
+        const getContentType = () => {
+            const bodyEl = document.getElementById('req-body');
+            return (bodyEl && typeof bodyEl._contentType === 'string') ? bodyEl._contentType : '';
+        };
+
         initTabs();
         initMemorySlots();
         if (typeof initInspector === 'function') {
@@ -144,6 +149,7 @@
                 if (el) {
                     el.value = '';
                     delete el._rawBody;
+                    delete el._contentType;
                 }
             });
             const curlInput = document.getElementById('curl-import-input');
@@ -170,6 +176,7 @@
                     method: document.getElementById('req-method').value || 'POST',
                     urlStr: document.getElementById('req-url').value,
                     bodyStr: getBodyValue(),
+                    contentType: getContentType(),
                     nonce: document.getElementById('req-nonce').value || 'n-test',
                     timestampStr: document.getElementById('req-timestamp').value || Math.floor(Date.now() / 1000).toString()
                 };
@@ -192,7 +199,7 @@
 
                 if (typeof resetInspector === 'function') resetInspector();
                 showToast('✨ 새로운 서명이 생성되어 적용되었습니다!');
-                renderGenerateSuccess(panel);
+                renderGenerateSuccess(panel, gen);
                 setOverheadVisible(false);
             } catch (e) {
                 renderGenerateError(panel, e);
@@ -217,6 +224,7 @@
                 method: cleanNoSpace('HTTP 메서드', document.getElementById('req-method').value),
                 urlStr: document.getElementById('req-url').value.trim(),
                 bodyStr: getBodyValue(),
+                contentType: getContentType(),
                 nonce: cleanNoSpace('Nonce', document.getElementById('req-nonce').value),
                 timestampStr: cleanNoSpace('Timestamp', document.getElementById('req-timestamp').value),
                 signature: cleanNoSpace('Signature', document.getElementById('req-signature').value),

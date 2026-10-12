@@ -26,6 +26,7 @@
         for (const k of ALL_INPUT_KEYS) {
             inputs[k] = '';
         }
+        inputs.contentType = '';
         return inputs;
     }
 
@@ -83,6 +84,7 @@
         inputs.timestampStr = rawHeaders[hdrConfig.timestamp] || '';
         inputs.signature = rawHeaders[hdrConfig.signature] || '';
         inputs.reqDigest = rawHeaders[hdrConfig.digest] || '';
+        inputs.contentType = rawHeaders['content-type'] || '';
     }
 
     // Tokenize a bash-style cURL command without ever executing or evaluating shell syntax

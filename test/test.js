@@ -467,40 +467,51 @@ async function runTests() {
             failed++;
         }
 
-        // 4) generateTestSignature throws pure Error with .detail (no HTML <div class="error-detail-box">)
-        let genErrOk = false;
+        // 4) generateTestSignature returns non-blocking .warning with .detail (no HTML <div class="error-detail-box">)
+        let genWarnOk = false;
+        let genXssRes = null;
         try {
-            await PopCore.generateTestSignature({
+            genXssRes = await PopCore.generateTestSignature({
                 method: "POST",
                 urlStr: "https://api.example.com/v1/tx",
                 bodyStr: xssBodyPayload,
                 nonce: "n1",
                 timestampStr: ts
             });
-        } catch (err) {
+            const w = genXssRes && genXssRes.warning;
             if (
-                err &&
-                !/<(div|strong|span|br)\b/i.test(err.message) &&
-                typeof err.detail === 'string' &&
-                err.detail.includes('<img src=x onerror=alert(1)>') &&
-                !err.detail.includes('<div')
+                genXssRes &&
+                typeof genXssRes.signature === 'string' &&
+                genXssRes.signature.length > 0 &&
+                w &&
+                w.code === PopCore.ERROR_CODES.INVALID_JSON &&
+                !/<(div|strong|span|br)\b/i.test(w.message) &&
+                typeof w.detail === 'string' &&
+                w.detail.includes('<img src=x onerror=alert(1)>') &&
+                !w.detail.includes('<div')
             ) {
-                genErrOk = true;
+                genWarnOk = true;
             }
+        } catch (_err) {
+            genWarnOk = false;
         }
-        if (genErrOk) {
+        if (genWarnOk) {
             passed++;
         } else {
-            console.log("[FAIL] xss-core-generate-sig: generateTestSignature error contained HTML or missed .detail");
+            console.log("[FAIL] xss-core-generate-sig: generateTestSignature threw or warning contained HTML / missed .detail");
             failed++;
         }
 
-        // 5) UI renderResult DOM verification: 0 innerHTML assignments, payloads exist strictly in textContent
+        // 5) UI renderResult & renderGenerateSuccess DOM verification: 0 innerHTML assignments, payloads exist strictly in textContent
         let innerHtmlUsed = false;
         function createMockNode(tagName) {
             return {
                 tagName,
                 className: '',
+                classList: {
+                    remove() {},
+                    add() {}
+                },
                 children: [],
                 _text: '',
                 get textContent() {
@@ -553,7 +564,14 @@ async function runTests() {
                 const methodRenderedText = mockPanel.textContent;
                 const methodRenderSafe = !innerHtmlUsed && methodRenderedText.includes('<script>alert(1)</script>');
 
-                if (bodyRenderSafe && methodRenderSafe) {
+                let genRenderSafe = false;
+                if (genXssRes && typeof PopUI.renderGenerateSuccess === 'function') {
+                    PopUI.renderGenerateSuccess(mockPanel, genXssRes);
+                    const genRenderedText = mockPanel.textContent;
+                    genRenderSafe = !innerHtmlUsed && genRenderedText.includes('<img src=x onerror=alert(1)>');
+                }
+
+                if (bodyRenderSafe && methodRenderSafe && genRenderSafe) {
                     passed++;
                 } else {
                     console.log("[FAIL] xss-ui-renderResult: innerHTML was used or textContent missing payload");
@@ -576,8 +594,13 @@ async function runTests() {
             const bodyOk = tempPanel.textContent.includes('<img src=x onerror=alert(1)>') && tempPanel.querySelectorAll('img').length === 0;
             renderResult(xssMethodRes);
             const methodOk = tempPanel.textContent.includes('<script>alert(1)</script>') && tempPanel.querySelectorAll('script').length === 0;
+            let genOk = false;
+            if (genXssRes && typeof PopUI.renderGenerateSuccess === 'function') {
+                PopUI.renderGenerateSuccess(tempPanel, genXssRes);
+                genOk = tempPanel.textContent.includes('<img src=x onerror=alert(1)>') && tempPanel.querySelectorAll('img').length === 0;
+            }
             if (createdTemp) tempPanel.remove();
-            if (bodyOk && methodOk) {
+            if (bodyOk && methodOk && genOk) {
                 passed++;
             } else {
                 console.log("[FAIL] xss-ui-renderResult: Browser DOM XSS check failed");
@@ -3349,6 +3372,128 @@ async function runTests() {
                 passed++;
             } else {
                 console.log(`[FAIL] hypothesis-guide-text-accuracy: nlTrailingAccurate=${nlTrailingAccurate}, hostRewrittenAccurate=${hostRewrittenAccurate}`);
+                failed++;
+            }
+        }
+
+        // 44) generateTestSignature plaintext support, looksLikeJson refinement, and Content-Type propagation (a, b, c, d)
+        {
+            let caseAOk = false;
+            let caseBOk = false;
+            let caseCOk = false;
+            let caseDOk = false;
+            let heuristicsAndCurlOk = false;
+
+            try {
+                // (a) Plaintext "[OK]" body -> no warning + signature generation succeeds
+                const resPlain = await PopCore.generateTestSignature({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: "Plain text log [OK]",
+                    nonce: "n1",
+                    timestampStr: "1700000000"
+                });
+                const diagPlain = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: "Plain text log [OK]",
+                    nonce: "n1",
+                    timestampStr: "1700000000",
+                    signature: resPlain.signature,
+                    pubkeyPem: resPlain.pubkeyPem,
+                    reqDigest: resPlain.reqDigest,
+                    evalTime: 1700000000
+                });
+                caseAOk =
+                    Boolean(resPlain && resPlain.signature && resPlain.reqDigest && resPlain.pubkeyPem) &&
+                    !resPlain.warning &&
+                    diagPlain.error === null &&
+                    diagPlain.firstFailedStage === null &&
+                    !diagPlain.warnings.some(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
+
+                // (b) Broken JSON ('{"a":1') -> warning present + signature generation succeeds
+                const resBroken = await PopCore.generateTestSignature({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: '{"a":1',
+                    nonce: "n1",
+                    timestampStr: "1700000000"
+                });
+                caseBOk =
+                    Boolean(resBroken && resBroken.signature && resBroken.reqDigest && resBroken.pubkeyPem) &&
+                    Boolean(resBroken.warning) &&
+                    resBroken.warning.code === PopCore.ERROR_CODES.INVALID_JSON &&
+                    typeof resBroken.warning.message === 'string' &&
+                    resBroken.warning.message.length > 0;
+
+                // (c) Content-Type: text/plain + body ending with '}' -> no warning
+                const resTextPlainBrace = await PopCore.generateTestSignature({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: 'plain text ending with {"key": broken}',
+                    contentType: "text/plain; charset=utf-8",
+                    nonce: "n1",
+                    timestampStr: "1700000000"
+                });
+                const curlTextPlain = parseCurl(
+                    "curl 'https://api.example.com/v1/tx' " +
+                    "-H 'Content-Type: text/plain' " +
+                    "-H 'X-FIDO2-Nonce: n1' " +
+                    "-H 'X-FIDO2-Timestamp: 1700000000' " +
+                    `-H 'X-FIDO2-Signature: ${resTextPlainBrace.signature}' ` +
+                    `-H 'X-Body-Digest: ${resTextPlainBrace.reqDigest}' ` +
+                    "--data-raw 'plain text ending with {\"key\": broken}'"
+                );
+                const diagFromCurl = await PopCore.diagnose({
+                    ...curlTextPlain.inputs,
+                    pubkeyPem: resTextPlainBrace.pubkeyPem,
+                    evalTime: 1700000000
+                });
+                caseCOk =
+                    Boolean(resTextPlainBrace && resTextPlainBrace.signature) &&
+                    !resTextPlainBrace.warning &&
+                    curlTextPlain.ok === true &&
+                    curlTextPlain.inputs.contentType === 'text/plain' &&
+                    diagFromCurl.error === null &&
+                    diagFromCurl.firstFailedStage === null &&
+                    !diagFromCurl.warnings.some(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
+
+                // (d) Valid JSON -> no warning + signature generation succeeds
+                const resValidJson = await PopCore.generateTestSignature({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: '{"amount":1000,"to":"alice"}',
+                    nonce: "n1",
+                    timestampStr: "1700000000"
+                });
+                caseDOk =
+                    Boolean(resValidJson && resValidJson.signature && resValidJson.reqDigest && resValidJson.pubkeyPem) &&
+                    !resValidJson.warning;
+
+                // Additional looksLikeJson heuristics: "function foo() { return 1; }" -> false (no warning)
+                const resFunc = await PopCore.generateTestSignature({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: "function foo() { return 1; }",
+                    nonce: "n1",
+                    timestampStr: "1700000000"
+                });
+                heuristicsAndCurlOk =
+                    Boolean(resFunc && resFunc.signature) &&
+                    !resFunc.warning &&
+                    PopCore.validateJsonBody("Plain text log [OK]") === null &&
+                    PopCore.validateJsonBody("function foo() { return 1; }") === null &&
+                    PopCore.validateJsonBody('{"a":1') !== null &&
+                    PopCore.validateJsonBody('"a": 1}') !== null &&
+                    PopCore.validateJsonBody('1, 2, 3]') !== null;
+            } catch (_e) {
+                // Pre-fix generateTestSignature throws on non-JSON / broken JSON
+            }
+
+            if (caseAOk && caseBOk && caseCOk && caseDOk && heuristicsAndCurlOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] plaintext-generate-sig-and-looks-like-json: caseAOk=${caseAOk}, caseBOk=${caseBOk}, caseCOk=${caseCOk}, caseDOk=${caseDOk}, heuristicsAndCurlOk=${heuristicsAndCurlOk}`);
                 failed++;
             }
         }

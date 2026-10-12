@@ -481,8 +481,19 @@
         panel.appendChild(warnDiv);
     }
 
-    function renderGenerateSuccess(panel) {
+    function renderGenerateSuccess(panel, genResult) {
         panel.textContent = '';
+        if (genResult && genResult.warning) {
+            const warnDiv = document.createElement('div');
+            warnDiv.className = 'alert warning alert-compact';
+            const warnTitle = document.createElement('strong');
+            warnTitle.className = 'alert-title';
+            warnTitle.textContent = '⚠️ JSON 본문 문법 확인 안내 (서명은 정상 생성됨)';
+            warnDiv.appendChild(warnTitle);
+            appendMultilineText(warnDiv, genResult.warning.message || String(genResult.warning));
+            appendErrorHintAndDetail(warnDiv, genResult.warning);
+            panel.appendChild(warnDiv);
+        }
         const okDiv = document.createElement('div');
         okDiv.className = 'alert success';
         const sTitle = document.createElement('strong');

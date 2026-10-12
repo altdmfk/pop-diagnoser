@@ -81,12 +81,21 @@
         if (!bodyStr || typeof bodyStr !== 'string') return false;
         const trimmed = bodyStr.trim();
         if (!trimmed) return false;
-        if (contentType && typeof contentType === 'string' && /application\/([a-z0-9.+-]+\+)?json/i.test(contentType)) {
-            return true;
+        if (typeof contentType === 'string' && contentType.trim().length > 0) {
+            return /application\/([a-z0-9.+-]+\+)?json/i.test(contentType);
         }
         const first = trimmed[0];
         const last = trimmed[trimmed.length - 1];
-        return first === '{' || first === '[' || last === '}' || last === ']';
+        if (first === '{' || first === '[') {
+            return true;
+        }
+        if (last === '}') {
+            return /"[^"\\\r\n]*"\s*:/.test(trimmed);
+        }
+        if (last === ']') {
+            return /^["'\d{\[]/.test(trimmed);
+        }
+        return false;
     }
 
     function validateJsonBody(bodyStr, errorMessage, contentType) {
@@ -794,31 +803,12 @@
      * - `diagnose(inputs, profile)`는 다단계 진단 파이프라인이므로, 입력 형식 오류가 있어도 예외를 던지지 않고
      *   진단 리포트 객체(`{ stages, warnings, error: { code, message, ... } }`)를 반환해 UI/CLI가 단일 경로로 렌더링하게 한다.
      * - 반면 `generateTestSignature(inputs, profile)`는 키쌍 생성 및 서명 수행이라는 단일 명령형 액션 유틸리티이므로,
-     *   입력 오류 시 구조화된 속성(`code`, `detail`, `line`, `column`, `problemLine`, `cleanMessage`, `hintCode`, `hint`, `hintExample`)을
-     *   담은 `Error`를 throw(Promise reject)하여 호출부(`try / await / catch`)가 실패를 즉시 분기 처리하도록 한다.
+     *   URL 형식 오류처럼 서명 대상 자체를 구성할 수 없는 치명적 입력 오류 시에만 `Error`를 throw(Promise reject)하고,
+     *   본문 JSON 문법 오류는 서명 생성을 차단하지 않고 반환 객체의 `warning` 필드(`{ code, message, detail, ... }`)로 전달한다.
      */
     async function generateTestSignature(inputs, profile = PaperProfile) {
         const activeProfile = profile || PaperProfile;
         const norm = normalizeInputs(inputs);
-
-        const jsonErr = validateJsonBody(
-            norm.bodyStr,
-            '요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\nJSON 문법(중괄호, 쉼표, 따옴표 등)을 먼저 수정해 주셔야 서명을 생성할 수 있습니다.',
-            norm.contentType
-        );
-        if (jsonErr) {
-            const err = new Error(jsonErr.message);
-            err.code = jsonErr.code;
-            err.detail = jsonErr.detail;
-            err.line = jsonErr.line;
-            err.column = jsonErr.column;
-            err.problemLine = jsonErr.problemLine;
-            err.cleanMessage = jsonErr.cleanMessage;
-            if (jsonErr.hintCode) err.hintCode = jsonErr.hintCode;
-            if (jsonErr.hint) err.hint = jsonErr.hint;
-            if (jsonErr.hintExample) err.hintExample = jsonErr.hintExample;
-            throw err;
-        }
 
         let url;
         try {
@@ -831,6 +821,12 @@
             err.code = ERROR_CODES.INVALID_URL;
             throw err;
         }
+
+        const jsonWarn = validateJsonBody(
+            norm.bodyStr,
+            '요청 본문(Body)이 올바른 JSON 형식이 아닙니다.\n게이트웨이는 본문을 원문 바이트 그대로 해시하므로 현재 문자열 기준으로 서명을 생성했지만, 중괄호({, }), 쉼표(,), 따옴표(") 누락이나 오타가 있는지 확인해 주세요.',
+            norm.contentType
+        );
 
         const digestHex = await hashString(norm.bodyStr);
         const prefixStr = activeProfile.digestPrefixStr || "sha256=";
@@ -852,13 +848,15 @@
             pubkeyPem,
             reqDigest,
             signature: base64UrlEncodeBytes(signatureBytes),
-            canonicalStr
+            canonicalStr,
+            warning: jsonWarn || null
         };
     }
 
     // 명시적 공개 API 목록만 노출 (_atob, _btoa, _crypto, binaryStringToBytes 등 내부 헬퍼 제외)
     return {
         diagnose,
+        looksLikeJson,
         validateJsonBody,
         generateTestSignature,
         ERROR_CODES,
