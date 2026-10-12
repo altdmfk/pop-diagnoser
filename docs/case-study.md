@@ -17,7 +17,7 @@
   3. **`digest-hex` (기존 `diagnose-core.js:305-311`, `525`)**: 5단계 본문 해시 비교가 `cleanReqDigest.toLowerCase() === bodyHashHex`로 대소문자를 구분하지 않아 대문자 Hex 다이제스트가 5단계를 그대로 통과했고, `HYPOTHESES`의 `digest-hex`는 4단계 전용 배열에만 들어 있어 5단계에서는 호출되지 않았습니다.
   4. **4·5단계 가설 테이블 분리 및 반환 형식 불일치 (기존 `diagnose-core.js:542-562`, `app.js:353`)**: 4단계는 `{ type: 'found', sets: [...] }`를 반환한 반면, 5단계는 별도 배열에서 `{ type: 'match', idStr, history }`를 반환했습니다. 하지만 `app.js`의 `renderResult()`는 `hRes.type === 'found'`와 `no-match`만 처리하고 있어 5단계 매칭 결과가 화면에 표시되지 않았습니다.
 - **수정**
-  - [`js/core/hypotheses.js`](../js/core/hypotheses.js)에서 4단계와 5단계 가설을 하나의 테이블(`HYPOTHESES`, `{ id, label, tag, stage, apply }`)로 합치고, 5단계 매칭 반환 구조도 `{ type: 'found', sets: [...], reduced: false }`로 통일했습니다.
+  - [`js/core/hypotheses.js`](../js/core/hypotheses.js)에서 4단계와 5단계 가설을 하나의 테이블(`HYPOTHESES`, `{ id, label, tag, stage, cause, solution, apply }`)로 합치고, 5단계 매칭 반환 구조도 `{ type: 'found', sets: [...], reduced: false }`로 통일했습니다.
   - 5단계 다이제스트 비교를 대소문자 구분 비교(`cleanReqDigest === bodyHashHex`)로 바꾸어 대문자 Hex가 `digest-hex` 가설로 잡히도록 수정했습니다.
   - [`js/core/diagnose.js`](../js/core/diagnose.js)의 `decodeSignatureWithFallback()`에서 Base64url 디코딩이 실패하더라도 표준 Base64 디코딩 결과가 64바이트 이상이면 `stdBase64Signature` 후보로 남겨 4단계 `sig-base64url` 가설에서 검증할 수 있게 했습니다.
   - `newline-crlf`와 `newline-trailing`을 `stage: 'both'`(4·5단계 겸용)로 넓히고, 원본과 차이가 없던 `query-unsorted`는 제거했습니다.
@@ -107,7 +107,7 @@
   2. 기존 `diagnose-core.js:154`에서 ASN.1 long-form 길이(`seqLen > 0x80`)를 읽을 때 `offset = 2 + numLenBytes + 1`로 `+ 1`을 잘못 더해 `r`의 `0x02`(INTEGER) 태그 위치를 1바이트 건너뛰는 오프셋 계산 실수가 있었습니다.
   3. `rLen` 또는 `sLen`이 선행 `0x00` 1바이트를 뺀 뒤에도 32바이트보다 클 때 길이 확인 없이 `raw.set(r, 32 - rLen)`을 호출해 음수 오프셋 `RangeError`가 날 수 있었습니다.
 - **수정**
-  - [`js/core/ecdsa.js`](../js/core/ecdsa.js)의 `derToRaw()`에서 최소 길이를 `MIN_DER_BYTES = 8`로 낮추고, long-form 오프셋을 `offset = 2 + numLenBytes`로 고쳤습니다.
+  - [`js/core/ecdsa.js`](../js/core/ecdsa.js)의 `parseDerSignature()`(및 이를 호출하는 `derToRaw()`)에서 최소 길이를 `MIN_DER_BYTES = 8`로 낮추고, long-form 오프셋을 `offset = 2 + numLenBytes`로 고쳤습니다.
   - 전체 시퀀스 길이(`offset + seqLen === view.length`), `s` 끝 오프셋(`sStart + sLen === view.length`), 선행 패딩 제거 후 `1 <= len <= 32` 여부와 불필요한 이중 `0x00` 패딩 여부를 확인하도록 수정했습니다.
 - **회귀 테스트**
   - [`test/test.js`](../test/test.js)에 70바이트 미만 DER 서명을 생성해 진단하는 `hyp-sig-der-short-under-70b`와 `derToRaw` 단위 테스트 3건(`derToRaw-68b`, `derToRaw-long-form`, `derToRaw-invalid-33b`)을 추가했습니다.
@@ -120,14 +120,14 @@
 
 - **문제**
   - `diagnose()`가 1단계(필수 헤더·입력 유무 확인)보다 먼저 `validateJsonBody()`를 실행하고, `bodyStr`이 비어 있지 않으면 `JSON.parse`를 통과해야만 진단을 진행했습니다.
-  - 게이트웨이는 본문을 바이트 스트림으로 SHA-256 해시할 뿐 JSON만 허용하지 않는데도, 평문(`"hello"`)이나 `form-urlencoded` 본문이 들어오면 `golden_pass.js`와 1~5단계 진단이 즉시 중단되었습니다.
+  - 게이트웨이는 본문을 바이트 스트림으로 SHA-256 해시할 뿐 JSON만 허용하지 않는데도, 평문(`"hello"`, `"Plain text log [OK]"`)이나 `form-urlencoded` 본문이 들어오면 `golden_pass.js`와 1~5단계 진단 및 `generateTestSignature()`가 중단되었습니다.
 - **원인**
-  - [`js/core/diagnose.js`](../js/core/diagnose.js)에서 JSON 문법 보조 검사를 치명적 입력 오류(`result.error`)로 취급하고 1단계 필수 항목 점검보다 앞단에 배치했습니다.
+  - [`js/core/diagnose.js`](../js/core/diagnose.js)에서 JSON 문법 보조 검사를 치명적 입력 오류(`result.error` 및 `throw`)로 취급하고 1단계 필수 항목 점검보다 앞단에 배치했습니다.
 - **수정**
   - `diagnose()` 실행 순서를 `1단계(필수 입력 확인) → 입력 형식 검사(URL·공개키·서명·타임스탬프) → 2~5단계 검증`으로 바로잡았습니다.
-  - `validateJsonBody()`는 본문이 `{`, `[`로 시작하거나 `,`, `:`, `}` 등 JSON 구문 흔적이 있을 때만 수행하고, 문법 오류 시 진단을 중단시키는 `error`가 아니라 `result.warnings`(`INVALID_JSON`)로 기록해 5단계 다이제스트 불일치 화면에서 함께 안내하도록 변경했습니다.
+  - `looksLikeJson(bodyStr, contentType)`을 정교화해 `Content-Type`이 비-JSON 계열이면 즉시 제외하고, `Content-Type`이 없을 때는 `{`/`[`로 시작하거나 `}`로 끝나면서 `"키":` 패턴이 있는 경우, 또는 `]`로 끝나면서 따옴표·숫자·`{`·`[`로 시작하는 경우에만 `validateJsonBody()`를 수행하도록 했습니다. 문법 오류 시 `diagnose()`는 `result.warnings`(`WARNING_CODES.INVALID_JSON`, `'ERR_INVALID_JSON'`)로, `generateTestSignature()`는 반환 객체의 `warning` 필드로 비차단 안내를 기록합니다.
 - **교훈**
-  - 사용자 편의를 위한 휴리스틱 검사(JSON 문법 힌트)가 프로토콜의 본질적 검증(바이트 스트림 해시 및 서명 검증)을 가로막아서는 안 됩니다.
+  - 사용자 편의를 위한 휴리스틱 검사(JSON 문법 힌트)가 프로토콜의 본질적 검증(바이트 스트림 해시 및 서명 생성·검증)을 가로막아서는 안 됩니다.
 
 ---
 
@@ -140,25 +140,25 @@
 - **원인**
   - 인스펙터 기능을 추가할 때 기존 코어 파서를 재사용하지 않고 별도 정규식·바이트 파서를 중복 작성하면서 경계 조건이 갈라졌습니다.
 - **수정**
-  - [`js/core/encoding.js`](../js/core/encoding.js)의 `detectSignatureEncoding()`과 패딩 없는 `base64UrlDecode()`, [`js/core/ecdsa.js`](../js/core/ecdsa.js)의 `parseDerSignature()`와 `parsePublicKeyPem()`으로 파서를 단일화해 메인 진단기와 인스펙터가 동일한 판정을 내리도록 통합했습니다.
+  - [`js/core/inspect.js`](../js/core/inspect.js)의 `detectAndDecodeSignature()`(내부적으로 [`js/core/encoding.js`](../js/core/encoding.js)의 패딩 없는 `base64UrlDecode()` 및 `base64StandardDecode()` 사용, 메인 진단기의 `decodeSignatureWithFallback()`과 인스펙터의 `inspectSignature()`가 공유)와 [`js/core/ecdsa.js`](../js/core/ecdsa.js)의 `parseDerSignature()`(`derToRaw()`와 `inspectDerStructure()`가 공유), `extractPublicKeySpkiBytes()` 및 `containsPrivateKeyMarker()`(`importPublicKey()`와 `inspectPublicKey()`가 공유)로 파서를 단일화해 메인 진단기와 인스펙터가 동일한 판정을 내리도록 통합했습니다.
   - `PRIVATE KEY` PEM 입력 시 즉시 `PRIVATE_KEY_REJECTED`로 거부하고, `generateKeyPairAndSign()`의 `generateKey` 호출을 `extractable: false`로 고정했습니다.
 - **교훈**
   - 같은 입력 포맷(Base64url/Hex, ASN.1 DER, SPKI PEM)을 다루는 진단 로직과 시각화 인스펙터는 반드시 단일 파서 함수를 공유해야 판정 모순을 막을 수 있습니다.
 
 ---
 
-## 9. BFS 가설 탐색의 순열·역연산 중복 검증 및 4·5단계 복합 탐색 누락
+## 9. BFS 가설 탐색의 순열·상태 중복 검증 및 4·5단계 복합 탐색 누락
 
 - **문제**
-  - 깊이 3 BFS에서 가설 집합 `{A, B, C}`가 6가지 순서로 중복 탐색되어 `WebCrypto.subtle.verify`가 불필요하게 반복 호출되었고, `path-trailing-slash-add` 뒤 `remove`처럼 서로 역연산인 조합도 재검증되었습니다.
+  - 깊이 3 BFS에서 가설 집합 `{A, B, C}`가 6가지 순서로 중복 탐색되어 `WebCrypto.subtle.verify`(`verifySig`)가 불필요하게 반복 호출되었고, `path-trailing-slash-add` 뒤 `path-trailing-slash-remove`처럼 원래 상태로 되돌아가는 역연산 조합도 재검증되었습니다.
   - 5단계는 깊이 1 단일 가설만 순회해 `body-bom-added + digest-hex` 같은 복합 원인을 찾지 못했고, 4·5단계 동시 실패(`both-fail`) 시 4단계만 탐색해 5단계 원인이 누락되었습니다.
 - **원인**
   - [`js/core/diagnose.js`](../js/core/diagnose.js)의 BFS 큐가 조합 인덱스 순서나 `(canonical, signature)` 상태 중복을 관리하지 않았고, 5단계 탐색이 단순 1중 루프로 작성되어 있었습니다.
 - **수정**
-  - 조합 인덱스 오름차순(`startIdx`)과 역연산 쌍 배제를 적용하고, `(canonical, signature)` 상태 캐시로 동일 상태에 대한 `verify` 재호출을 0회로 줄이면서 같은 깊이에서 동일 상태로 수렴하는 구분 불가(`indistinguishable`) 경로는 보존했습니다.
-  - `sig-base64url`을 `sig-der`보다 앞에 배치해 순서 의존 쌍이 정상 동작하도록 보장하고, 5단계에도 깊이 1~3 BFS 조합 탐색을 도입했으며, 4·5단계 동시 실패 시 두 단계의 탐색 결과를 모두 반환·렌더링하도록 개선했습니다.
+  - `searchStage4Hypotheses()`와 `searchStage5Hypotheses()`에서 별도의 역연산 배제 테이블을 두는 대신, 조합 인덱스 오름차순(`startIdx`)과 상태 캐시(`stateCache`: 4단계 `${nextCanonical}|${nextSigHex}`, 5단계 `${nextReq.rawBody}|${nextReq.bodyHash}`)를 결합해 중복을 제거했습니다. 루트 상태를 깊이 0으로 `stateCache`에 미리 등록하고 더 얕은 깊이에서 이미 방문한 상태(`cached.depth < nextDepth`)는 건너뛰므로, 역연산 쌍 적용으로 이전 상태(깊이 0 등)로 되돌아가는 경로가 자동으로 가지치기됩니다. 또한 같은 깊이(`cached.depth === nextDepth`)에서 동일 상태로 수렴하는 경우에는 캐시된 검증 결과(`cached.verified`)를 재사용해 동일 상태에 대한 `verifySig()` 재호출을 0회로 줄이면서 구분 불가(`indistinguishable`) 후보 경로는 보존했습니다(일반 최악 입력 시 탐색 루프 내 63회·4단계 초기 검증 포함 총 64회 호출, `outside-catalog` 입력 시 총 26회 호출).
+  - `STAGE4_HYPOTHESIS_PRIORITY`를 통해 `sig-base64url`을 `sig-der`보다 앞에 배치해 순서 의존 쌍이 정상 동작하도록 보장하고, 5단계에도 깊이 1~3 BFS 조합 탐색(`STAGE5_HYPOTHESIS_PRIORITY`)을 도입했으며, 4·5단계 동시 실패 시 두 단계의 탐색 결과를 모두 반환·렌더링(`mergeStage4AndStage5Sets()`)하도록 개선했습니다.
 - **교훈**
-  - 탐색 공간이 작더라도 순열 중복과 항등 전이를 제거해야 상한(`maxSearchNodes: 100`)이 의미를 가지며, 순서에 의존하는 전이 쌍은 카탈로그 정렬 순서와 테스트로 명시해야 합니다.
+  - 탐색 공간이 작더라도 조합 인덱스(`startIdx`)와 상태 캐시(`stateCache`)로 순열 중복과 회귀(역연산)·항등 전이를 제거해야 상한(`maxSearchNodes: 100`, `maxComboDepth: 3`)이 의미를 가지며, 순서에 의존하는 전이 쌍은 카탈로그 우선순위와 테스트로 명시해야 합니다.
 
 ---
 
@@ -213,7 +213,7 @@
   - `README.md`에 적힌 기능·수치·흐름도를 실제 코드의 함수와 1:1로 대조해 불일치 항목(실행 순서, 5단계 BFS 조합 탐색, 4·5단계 동시 실패 처리, `maxSearchNodes: 100`, 모듈 개수, `:443` 토글 범위, `<textarea>` 줄바꿈 한계 등)을 모두 동기화했습니다.
 - **진단 보조 기능**
   - **서명 · 공개키 인스펙터 ([`js/core/inspect.js`](../js/core/inspect.js), [`js/ui/inspector.js`](../js/ui/inspector.js))**: 서명의 인코딩(`base64url` / 표준 `base64` / `hex`), `raw-rs(64B)` vs `der` 구조, `r`·`s` 값과 High-S 여부, 공개키의 SPKI OID(`ecPublicKey`, `P-256`), 타원곡선 위 좌표 검증(\(y^2 \equiv x^3 - 3x + b \pmod p\)), SHA-256 Fingerprint를 별도 패널에서 확인합니다.
-  - **cURL / Raw HTTP 붙여넣기 파서 및 샘플 버튼 ([`js/core/curlParser.js`](../js/core/curlParser.js), [`js/ui/importer.js`](../js/ui/importer.js))**: `eval` 없이 동작하는 상태 기계 토크나이저로 브라우저 DevTools의 `Copy as cURL (bash)` 명령어와 Raw HTTP 요청을 파싱해 입력칸에 채웁니다.
+  - **cURL / Raw HTTP 붙여넣기 파서 및 샘플 버튼 ([`js/core/curlParser.js`](../js/core/curlParser.js), [`js/ui/importer.js`](../js/ui/importer.js))**: `eval` 없이 동작하는 상태 기계 토크나이저(`tokenizeShellCommand()`, `parseCurl()`, `parseRawHttp()`)로 브라우저 DevTools의 `Copy as cURL (bash)` 명령어와 Raw HTTP 요청(`Content-Type` 포함)을 파싱해 입력칸에 채웁니다.
   - **키보드 접근성 및 모바일 대응 ([`js/ui/tabs.js`](../js/ui/tabs.js), [`css/style.css`](../css/style.css))**: 탭 목록에 `role="tablist"`와 방향키·`Home`·`End` 키 이동(Roving `tabindex`)을 적용하고, 모든 `<label for>` 연결 여부를 [`test/test.js`](../test/test.js)에서 정적 검사합니다.
 
 ---
@@ -224,10 +224,10 @@
 
 | 지표 항목 | 리팩토링 전 | 현재 | 비고 |
 | :--- | :--- | :--- | :--- |
-| **`node test.js` 결과** | **16 통과 / 1 실패 / 실행 중 오류 중단** | **79 통과 / 0 실패 / 0 건너뜀** | 브라우저(`test.html`)는 Node `fs` 전용 1건 제외 **78 통과 / 1 건너뜀 (총 79건)** |
-| **가설 카탈로그 동작 여부** | README 11개 중 **7개만 동작** (3개 불능, 1개 5단계 전용) + 미문서화 3개 | **13개 가설(14개 항목) 동작 및 고정 벡터 테스트 보유** | 항등 가설 `query-unsorted` 제거, 4·5단계 최대 깊이 3 BFS 조합 탐색 |
+| **`node test.js` 결과** | **16 통과 / 1 실패 / 실행 중 오류 중단** | **82 통과 / 0 실패 / 0 건너뜀** | 브라우저(`test.html`)는 Node `fs` 전용 1건 제외 **81 통과 / 1 건너뜀 (총 82건)** |
+| **가설 카탈로그 동작 여부** | README 11개 중 **7개만 동작** (3개 불능, 1개 5단계 전용) + 미문서화 3개 | **14개 가설(4단계 10개 · 5단계 6개, 겸용 2개 포함) 동작 및 고정 벡터 테스트 보유** | 항등 가설 `query-unsorted` 제거, 4·5단계 최대 깊이 3 BFS 조합 탐색 |
 | **4·5단계 가설 UI 표시** | 5단계 매칭 미출력, `sets[0]`만 출력, Diff 색상 반대 | **4·5단계 동시 표시, 모든 `sets` 및 후보 가이드 출력, Diff 색상 일치** | 반환 스키마 `{ type: 'found', sets }` 통일 |
-| **소스 파일 구성** | 루트 단일 파일 위주 (`diagnose-core.js` 782줄, `app.js` 465줄, `style.css` 479줄) | **역할별 17개 UMD 모듈 + `css/style.css` 분리** | `js/core/`(9개), `js/ui/`(7개), `js/app.js`(1개), 코어→UI 역의존 0건 |
+| **소스 파일 구성** | 루트 단일 파일 위주 (`diagnose-core.js` 782줄, `app.js` 465줄, `style.css` 479줄) | **역할별 17개 스크립트 모듈 + `css/style.css` 분리** | `js/core/`(9개), `js/ui/`(7개), `js/app.js`(1개), 코어→UI 역의존 0건 |
 | **진단 보조 기능** | 데모 시나리오 5종 및 테스트 서명 생성기 | **데모 7종 + 서명·공개키 인스펙터 + cURL/Raw HTTP 파서 + 키보드 접근성** | 기존 진단 파이프라인 결과 불변 유지 |
 | **`innerHTML` 사용 건수** | **10건** (이 중 사용자 입력 삽입 XSS 3건) | **0건** | 전체 `createElement` / `textContent` 사용 |
 | **`el.style.*` / `!important`** | `el.style.*` **27건**, CSS `!important` **12건** | **각 0건** | CSS 클래스 토글(`.hidden`, `.toast-visible` 등)로 통일 |
