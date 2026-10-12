@@ -16,12 +16,13 @@
     root.PopCore = Object.assign(root.PopCore || {}, mod);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (deps) {
     const {
-        _atob,
         _crypto,
         base64UrlDecode,
         base64StandardDecode,
         bytesToHex,
-        derToRaw
+        derToRaw,
+        PEM_PUBLIC_KEY_HEADER = '-----BEGIN PUBLIC KEY-----',
+        PEM_PUBLIC_KEY_FOOTER = '-----END PUBLIC KEY-----'
     } = deps;
 
     // NIST P-256 (secp256r1 / prime256v1) parameters
@@ -32,21 +33,59 @@
     const P256_HALF_N = P256_N >> 1n;
 
     const OID_EC_PUBLIC_KEY = '1.2.840.10045.2.1';
+    const OID_RSA_ENCRYPTION = '1.2.840.113549.1.1.1';
     const OID_P256 = '1.2.840.10045.3.1.7';
 
     const KNOWN_ALGORITHMS = {
-        '1.2.840.10045.2.1': 'id-ecPublicKey (ECDSA)',
-        '1.2.840.113549.1.1.1': 'rsaEncryption (RSA)',
+        [OID_EC_PUBLIC_KEY]: 'id-ecPublicKey (ECDSA)',
+        [OID_RSA_ENCRYPTION]: 'rsaEncryption (RSA)',
         '1.3.101.110': 'X25519',
         '1.3.101.112': 'Ed25519'
     };
 
     const KNOWN_CURVES = {
-        '1.2.840.10045.3.1.7': 'P-256 (prime256v1 / secp256r1)',
+        [OID_P256]: 'P-256 (prime256v1 / secp256r1)',
         '1.3.132.0.34': 'P-384 (secp384r1)',
         '1.3.132.0.35': 'P-521 (secp521r1)',
         '1.3.132.0.10': 'secp256k1'
     };
+
+    function createSigFailReport(overrides) {
+        return Object.assign({
+            ok: false,
+            encoding: 'unknown',
+            encodingReason: '',
+            byteLength: 0,
+            format: 'invalid',
+            r: null,
+            s: null,
+            rLeadingZeroStripped: false,
+            sLeadingZeroStripped: false,
+            isHighS: false,
+            rOutOfRange: false,
+            sOutOfRange: false,
+            warnings: [],
+            error: null
+        }, overrides);
+    }
+
+    function createPubKeyFailReport(overrides) {
+        return Object.assign({
+            ok: false,
+            byteLength: 0,
+            algorithmOid: null,
+            algorithmName: null,
+            curveOid: null,
+            curveName: null,
+            pointFormat: null,
+            x: null,
+            y: null,
+            onCurve: null,
+            fingerprint: null,
+            warnings: [],
+            error: null
+        }, overrides);
+    }
 
     function containsPrivateKeyMarker(str) {
         if (typeof str !== 'string') return false;
@@ -255,19 +294,8 @@
 
     function inspectSignature(sigStr) {
         if (containsPrivateKeyMarker(sigStr)) {
-            return {
-                ok: false,
-                encoding: 'unknown',
+            return createSigFailReport({
                 encodingReason: '비밀키(PRIVATE KEY) 헤더가 감지되었습니다.',
-                byteLength: 0,
-                format: 'invalid',
-                r: null,
-                s: null,
-                rLeadingZeroStripped: false,
-                sLeadingZeroStripped: false,
-                isHighS: false,
-                rOutOfRange: false,
-                sOutOfRange: false,
                 warnings: [
                     {
                         code: 'PRIVATE_KEY_INPUT',
@@ -278,27 +306,16 @@
                     code: 'PRIVATE_KEY_REJECTED',
                     message: '보안 경고: 비밀키(PRIVATE KEY)는 입력할 수 없습니다.'
                 }
-            };
+            });
         }
 
         const decoded = detectAndDecodeSignature(sigStr);
         if (decoded.error || !decoded.bytes) {
-            return {
-                ok: false,
+            return createSigFailReport({
                 encoding: decoded.encoding,
                 encodingReason: decoded.encodingReason,
-                byteLength: 0,
-                format: 'invalid',
-                r: null,
-                s: null,
-                rLeadingZeroStripped: false,
-                sLeadingZeroStripped: false,
-                isHighS: false,
-                rOutOfRange: false,
-                sOutOfRange: false,
-                warnings: [],
                 error: decoded.error
-            };
+            });
         }
 
         const bytes = decoded.bytes;
@@ -343,22 +360,13 @@
         }
 
         if (!rBytes || !sBytes) {
-            return {
-                ok: false,
+            return createSigFailReport({
                 encoding: decoded.encoding,
                 encodingReason: decoded.encodingReason,
                 byteLength,
                 format,
-                r: null,
-                s: null,
-                rLeadingZeroStripped: false,
-                sLeadingZeroStripped: false,
-                isHighS: false,
-                rOutOfRange: false,
-                sOutOfRange: false,
-                warnings: [],
                 error
-            };
+            });
         }
 
         const rHex = bytesToHex(rBytes);
@@ -478,18 +486,7 @@
     async function inspectPublicKey(pemStr) {
         const raw = String(pemStr ?? '').trim();
         if (containsPrivateKeyMarker(raw)) {
-            return {
-                ok: false,
-                byteLength: 0,
-                algorithmOid: null,
-                algorithmName: null,
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint: null,
+            return createPubKeyFailReport({
                 warnings: [
                     {
                         code: 'PRIVATE_KEY_INPUT',
@@ -498,214 +495,98 @@
                 ],
                 error: {
                     code: 'PRIVATE_KEY_REJECTED',
-                    message: '보안 경고: 비밀키(PRIVATE KEY)는 입력할 수 없습니다. 공개키(-----BEGIN PUBLIC KEY-----)만 입력해 주세요.'
+                    message: `보안 경고: 비밀키(PRIVATE KEY)는 입력할 수 없습니다. 공개키(${PEM_PUBLIC_KEY_HEADER})만 입력해 주세요.`
                 }
-            };
+            });
         }
 
         if (!raw) {
-            return {
-                ok: false,
-                byteLength: 0,
-                algorithmOid: null,
-                algorithmName: null,
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint: null,
-                warnings: [],
+            return createPubKeyFailReport({
                 error: { code: 'EMPTY_PUBLIC_KEY', message: '공개키 입력값이 비어 있습니다.' }
-            };
+            });
         }
 
         if (/-----\s*BEGIN RSA PUBLIC KEY\s*-----/i.test(raw)) {
-            return {
-                ok: false,
-                byteLength: 0,
-                algorithmOid: '1.2.840.113549.1.1.1',
+            return createPubKeyFailReport({
+                algorithmOid: OID_RSA_ENCRYPTION,
                 algorithmName: 'rsaEncryption (RSA PKCS#1)',
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint: null,
-                warnings: [],
                 error: {
                     code: 'UNSUPPORTED_ALGORITHM_RSA',
                     message: 'RSA 공개키(PKCS#1)는 지원하지 않습니다. FIDO2 PoP 게이트웨이는 ECDSA P-256 공개키(SPKI)만 지원합니다.'
                 }
-            };
+            });
         }
 
-        const pemHeader = '-----BEGIN PUBLIC KEY-----';
-        const pemFooter = '-----END PUBLIC KEY-----';
-        const hasHeader = raw.includes(pemHeader);
-        const hasFooter = raw.includes(pemFooter);
+        const hasHeader = raw.includes(PEM_PUBLIC_KEY_HEADER);
+        const hasFooter = raw.includes(PEM_PUBLIC_KEY_FOOTER);
         let b64Body = '';
 
         if (hasHeader && hasFooter) {
-            const startIdx = raw.indexOf(pemHeader) + pemHeader.length;
-            const endIdx = raw.indexOf(pemFooter);
+            const startIdx = raw.indexOf(PEM_PUBLIC_KEY_HEADER) + PEM_PUBLIC_KEY_HEADER.length;
+            const endIdx = raw.indexOf(PEM_PUBLIC_KEY_FOOTER);
             if (endIdx < startIdx) {
-                return {
-                    ok: false,
-                    byteLength: 0,
-                    algorithmOid: null,
-                    algorithmName: null,
-                    curveOid: null,
-                    curveName: null,
-                    pointFormat: null,
-                    x: null,
-                    y: null,
-                    onCurve: null,
-                    fingerprint: null,
-                    warnings: [],
+                return createPubKeyFailReport({
                     error: { code: 'INVALID_PEM_FORMAT', message: '공개키 PEM 헤더와 푸터의 순서가 올바르지 않습니다.' }
-                };
+                });
             }
             b64Body = raw.substring(startIdx, endIdx).replace(/\s/g, '');
         } else if (!hasHeader && !hasFooter && !/-----/.test(raw)) {
             b64Body = raw.replace(/\s/g, '');
         } else {
-            return {
-                ok: false,
-                byteLength: 0,
-                algorithmOid: null,
-                algorithmName: null,
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint: null,
-                warnings: [],
+            return createPubKeyFailReport({
                 error: {
                     code: 'INVALID_PEM_FORMAT',
-                    message: '공개키 PEM 헤더(-----BEGIN PUBLIC KEY-----) 또는 푸터(-----END PUBLIC KEY-----)가 누락되었거나 손상되었습니다.'
+                    message: `공개키 PEM 헤더(${PEM_PUBLIC_KEY_HEADER}) 또는 푸터(${PEM_PUBLIC_KEY_FOOTER})가 누락되었거나 손상되었습니다.`
                 }
-            };
+            });
         }
 
         if (!b64Body) {
-            return {
-                ok: false,
-                byteLength: 0,
-                algorithmOid: null,
-                algorithmName: null,
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint: null,
-                warnings: [],
+            return createPubKeyFailReport({
                 error: { code: 'EMPTY_PUBLIC_KEY', message: '공개키 PEM 내부의 Base64 데이터가 비어 있습니다.' }
-            };
+            });
         }
 
         let spkiBytes;
         try {
-            if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64Body)) {
-                throw new Error('Invalid Base64 characters');
-            }
-            let padded = b64Body.replace(/=+$/, '');
-            if (padded.length % 4 === 1) {
-                throw new Error('Invalid Base64 length');
-            }
-            while (padded.length % 4) padded += '=';
-            const binStr = _atob(padded);
-            spkiBytes = new Uint8Array(binStr.length);
-            for (let i = 0; i < binStr.length; i++) {
-                spkiBytes[i] = binStr.charCodeAt(i);
-            }
+            spkiBytes = new Uint8Array(base64StandardDecode(b64Body));
         } catch (e) {
-            return {
-                ok: false,
-                byteLength: 0,
-                algorithmOid: null,
-                algorithmName: null,
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint: null,
-                warnings: [],
+            return createPubKeyFailReport({
                 error: {
                     code: 'INVALID_BASE64',
                     message: '공개키 Base64 디코딩에 실패했습니다. 허용되지 않는 문자나 손상된 패딩이 있는지 확인하세요.'
                 }
-            };
+            });
         }
 
         const hashBuffer = await _crypto.subtle.digest('SHA-256', spkiBytes);
         const fingerprint = bytesToHex(hashBuffer);
+        const baseMeta = { byteLength: spkiBytes.length, fingerprint };
 
         // Parse outer SubjectPublicKeyInfo SEQUENCE
         const outerSeq = readDerTlv(spkiBytes, 0);
         if (!outerSeq || outerSeq.tag !== 0x30 || outerSeq.nextOffset !== spkiBytes.length) {
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid: null,
-                algorithmName: null,
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint,
-                warnings: [],
+            return createPubKeyFailReport({
+                ...baseMeta,
                 error: { code: 'INVALID_SPKI_DER', message: '공개키 SPKI DER 외곽 SEQUENCE 구조가 손상되었습니다.' }
-            };
+            });
         }
 
         // Parse AlgorithmIdentifier SEQUENCE
         const algSeq = readDerTlv(spkiBytes, outerSeq.valueStart);
         if (!algSeq || algSeq.tag !== 0x30 || algSeq.nextOffset > outerSeq.valueEnd) {
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid: null,
-                algorithmName: null,
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint,
-                warnings: [],
+            return createPubKeyFailReport({
+                ...baseMeta,
                 error: { code: 'INVALID_SPKI_DER', message: 'SPKI AlgorithmIdentifier SEQUENCE 구조가 손상되었습니다.' }
-            };
+            });
         }
 
         const algOidTlv = readDerTlv(spkiBytes, algSeq.valueStart);
         if (!algOidTlv || algOidTlv.tag !== 0x06 || algOidTlv.nextOffset > algSeq.valueEnd) {
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid: null,
-                algorithmName: null,
-                curveOid: null,
-                curveName: null,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint,
-                warnings: [],
+            return createPubKeyFailReport({
+                ...baseMeta,
                 error: { code: 'INVALID_SPKI_DER', message: 'SPKI 알고리즘 OID(0x06)를 읽을 수 없습니다.' }
-            };
+            });
         }
 
         const algorithmOid = decodeOid(spkiBytes.slice(algOidTlv.valueStart, algOidTlv.valueEnd));
@@ -716,27 +597,20 @@
         if (algOidTlv.nextOffset < algSeq.valueEnd) {
             const paramTlv = readDerTlv(spkiBytes, algOidTlv.nextOffset);
             if (!paramTlv || paramTlv.nextOffset !== algSeq.valueEnd) {
-                return {
-                    ok: false,
-                    byteLength: spkiBytes.length,
+                return createPubKeyFailReport({
+                    ...baseMeta,
                     algorithmOid,
                     algorithmName,
-                    curveOid: null,
-                    curveName: null,
-                    pointFormat: null,
-                    x: null,
-                    y: null,
-                    onCurve: null,
-                    fingerprint,
-                    warnings: [],
                     error: { code: 'INVALID_SPKI_DER', message: 'SPKI 알고리즘 파라미터 DER 구조가 손상되었습니다.' }
-                };
+                });
             }
             if (paramTlv.tag === 0x06) {
                 curveOid = decodeOid(spkiBytes.slice(paramTlv.valueStart, paramTlv.valueEnd));
                 curveName = KNOWN_CURVES[curveOid] || (curveOid ? `OID ${curveOid}` : null);
             }
         }
+
+        const algCurveMeta = { ...baseMeta, algorithmOid, algorithmName, curveOid, curveName };
 
         // Parse subjectPublicKey BIT STRING
         const bitStringTlv = readDerTlv(spkiBytes, algSeq.nextOffset);
@@ -747,66 +621,33 @@
             bitStringTlv.length < 2 ||
             spkiBytes[bitStringTlv.valueStart] !== 0x00
         ) {
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid,
-                algorithmName,
-                curveOid,
-                curveName,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint,
-                warnings: [],
+            return createPubKeyFailReport({
+                ...algCurveMeta,
                 error: { code: 'INVALID_SPKI_DER', message: 'SPKI subjectPublicKey BIT STRING 구조가 손상되었습니다.' }
-            };
+            });
         }
 
         if (algorithmOid !== OID_EC_PUBLIC_KEY) {
-            const isRsa = algorithmOid === '1.2.840.113549.1.1.1';
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid,
-                algorithmName,
-                curveOid,
-                curveName,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint,
-                warnings: [],
+            const isRsa = algorithmOid === OID_RSA_ENCRYPTION;
+            return createPubKeyFailReport({
+                ...algCurveMeta,
                 error: {
                     code: isRsa ? 'UNSUPPORTED_ALGORITHM_RSA' : 'UNSUPPORTED_ALGORITHM',
                     message: isRsa
-                        ? 'RSA 공개키(OID 1.2.840.113549.1.1.1)는 지원하지 않습니다. FIDO2 PoP 게이트웨이는 ECDSA P-256 공개키만 허용합니다.'
+                        ? `RSA 공개키(OID ${OID_RSA_ENCRYPTION})는 지원하지 않습니다. FIDO2 PoP 게이트웨이는 ECDSA P-256 공개키만 허용합니다.`
                         : `지원하지 않는 공개키 알고리즘(${algorithmName || algorithmOid})입니다. ECDSA(OID ${OID_EC_PUBLIC_KEY})만 지원합니다.`
                 }
-            };
+            });
         }
 
         if (curveOid !== OID_P256) {
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid,
-                algorithmName,
-                curveOid,
-                curveName,
-                pointFormat: null,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint,
-                warnings: [],
+            return createPubKeyFailReport({
+                ...algCurveMeta,
                 error: {
                     code: 'UNSUPPORTED_CURVE',
                     message: `지원하지 않는 타원곡선(${curveName || curveOid || '미지정'})입니다. FIDO2 PoP 게이트웨이는 P-256(OID ${OID_P256})만 지원합니다.`
                 }
-            };
+            });
         }
 
         const pointBytes = spkiBytes.slice(bitStringTlv.valueStart + 1, bitStringTlv.valueEnd);
@@ -816,46 +657,26 @@
             const pointFormat = (prefix === 0x02 || prefix === 0x03)
                 ? `compressed(${prefixHex})`
                 : `invalid(${prefixHex})`;
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid,
-                algorithmName,
-                curveOid,
-                curveName,
+            return createPubKeyFailReport({
+                ...algCurveMeta,
                 pointFormat,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint,
-                warnings: [],
                 error: {
                     code: 'INVALID_POINT_PREFIX',
                     message: `비압축 점 접두 바이트(0x04)가 아닙니다 (감지된 접두: ${prefixHex}). 65바이트 비압축 점(0x04 || X || Y)만 지원합니다.`
                 }
-            };
+            });
         }
 
         const pointFormat = 'uncompressed(0x04)';
         if (pointBytes.length !== 65) {
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid,
-                algorithmName,
-                curveOid,
-                curveName,
+            return createPubKeyFailReport({
+                ...algCurveMeta,
                 pointFormat,
-                x: null,
-                y: null,
-                onCurve: null,
-                fingerprint,
-                warnings: [],
                 error: {
                     code: 'INVALID_POINT_LENGTH',
                     message: `비압축 공개키 점의 바이트 길이(${pointBytes.length}B)가 올바르지 않습니다. 정확히 65바이트(0x04 + X 32B + Y 32B)여야 합니다.`
                 }
-            };
+            });
         }
 
         const xHex = bytesToHex(pointBytes.slice(1, 33));
@@ -875,38 +696,26 @@
         }
 
         if (!onCurve) {
-            return {
-                ok: false,
-                byteLength: spkiBytes.length,
-                algorithmOid,
-                algorithmName,
-                curveOid,
-                curveName,
+            return createPubKeyFailReport({
+                ...algCurveMeta,
                 pointFormat,
                 x: xHex,
                 y: yHex,
                 onCurve: false,
-                fingerprint,
-                warnings: [],
                 error: {
                     code: 'POINT_NOT_ON_CURVE',
                     message: '공개키 좌표 (X, Y)가 P-256 타원곡선 방정식(y² ≡ x³ - 3x + b mod p)을 만족하지 않습니다 (곡선 밖의 점).'
                 }
-            };
+            });
         }
 
         return {
             ok: true,
-            byteLength: spkiBytes.length,
-            algorithmOid,
-            algorithmName,
-            curveOid,
-            curveName,
+            ...algCurveMeta,
             pointFormat,
             x: xHex,
             y: yHex,
             onCurve: true,
-            fingerprint,
             warnings: [],
             error: null
         };
@@ -919,6 +728,7 @@
         P256_N,
         P256_HALF_N,
         OID_EC_PUBLIC_KEY,
+        OID_RSA_ENCRYPTION,
         OID_P256,
         inspectSignature,
         inspectPublicKey

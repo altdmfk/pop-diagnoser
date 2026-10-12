@@ -18,24 +18,20 @@
     };
 
     const MAX_INPUT_LENGTH = 512 * 1024; // 512 KB safety limit
+    const ALL_INPUT_KEYS = ['method', 'urlStr', 'bodyStr', 'nonce', 'timestampStr', 'signature', 'reqDigest'];
     const REQUIRED_POP_FIELDS = ['urlStr', 'nonce', 'timestampStr', 'signature', 'reqDigest'];
 
     function createEmptyInputs() {
-        return {
-            method: '',
-            urlStr: '',
-            bodyStr: '',
-            nonce: '',
-            timestampStr: '',
-            signature: '',
-            reqDigest: ''
-        };
+        const inputs = {};
+        for (const k of ALL_INPUT_KEYS) {
+            inputs[k] = '';
+        }
+        return inputs;
     }
 
     function computeFilledAndMissing(inputs) {
         const filled = [];
-        const allKeys = ['method', 'urlStr', 'bodyStr', 'nonce', 'timestampStr', 'signature', 'reqDigest'];
-        for (const k of allKeys) {
+        for (const k of ALL_INPUT_KEYS) {
             if (typeof inputs[k] === 'string' && inputs[k].length > 0) {
                 filled.push(k);
             }
@@ -52,11 +48,41 @@
     function getHeaderConfig(profile) {
         const hdrs = (profile && profile.headers) ? profile.headers : defaultProfile.headers;
         return {
-            nonce: (hdrs.nonce || 'X-FIDO2-Nonce').toLowerCase(),
-            timestamp: (hdrs.timestamp || 'X-FIDO2-Timestamp').toLowerCase(),
-            signature: (hdrs.signature || 'X-FIDO2-Signature').toLowerCase(),
-            digest: (hdrs.digest || 'X-Body-Digest').toLowerCase()
+            nonce: (hdrs.nonce || defaultProfile.headers.nonce).toLowerCase(),
+            timestamp: (hdrs.timestamp || defaultProfile.headers.timestamp).toLowerCase(),
+            signature: (hdrs.signature || defaultProfile.headers.signature).toLowerCase(),
+            digest: (hdrs.digest || defaultProfile.headers.digest).toLowerCase()
         };
+    }
+
+    function recordHeaderEntry(headerStr, seenHeaders, rawHeaders, warnings, invalidMsgPrefix) {
+        const colonIdx = headerStr.indexOf(':');
+        if (colonIdx <= 0) {
+            warnings.push({
+                code: 'MALFORMED_HEADER',
+                message: `${invalidMsgPrefix}: ${headerStr}`
+            });
+            return;
+        }
+        const hName = headerStr.slice(0, colonIdx).trim();
+        const hVal = headerStr.slice(colonIdx + 1).trim();
+        const hKey = hName.toLowerCase();
+        if (seenHeaders[hKey]) {
+            warnings.push({
+                code: 'DUPLICATE_HEADER',
+                message: `중복된 헤더('${hName}')가 감지되어 마지막 값을 사용했습니다.`
+            });
+        }
+        seenHeaders[hKey] = (seenHeaders[hKey] || 0) + 1;
+        rawHeaders[hKey] = hVal;
+    }
+
+    function assignPopHeadersToInputs(inputs, rawHeaders, profile) {
+        const hdrConfig = getHeaderConfig(profile);
+        inputs.nonce = rawHeaders[hdrConfig.nonce] || '';
+        inputs.timestampStr = rawHeaders[hdrConfig.timestamp] || '';
+        inputs.signature = rawHeaders[hdrConfig.signature] || '';
+        inputs.reqDigest = rawHeaders[hdrConfig.digest] || '';
     }
 
     // Tokenize a bash-style cURL command without ever executing or evaluating shell syntax
@@ -350,25 +376,7 @@
             for (let i = 1; i < headLines.length; i++) {
                 const line = headLines[i];
                 if (!line.trim()) continue;
-                const colonIdx = line.indexOf(':');
-                if (colonIdx <= 0) {
-                    warnings.push({
-                        code: 'MALFORMED_HEADER',
-                        message: `형식이 올바르지 않은 헤더 줄을 무시했습니다: ${line}`
-                    });
-                    continue;
-                }
-                const hName = line.slice(0, colonIdx).trim();
-                const hVal = line.slice(colonIdx + 1).trim();
-                const hKey = hName.toLowerCase();
-                if (seenHeaders[hKey]) {
-                    warnings.push({
-                        code: 'DUPLICATE_HEADER',
-                        message: `중복된 헤더('${hName}')가 감지되어 마지막 값을 사용했습니다.`
-                    });
-                }
-                seenHeaders[hKey] = (seenHeaders[hKey] || 0) + 1;
-                rawHeaders[hKey] = hVal;
+                recordHeaderEntry(line, seenHeaders, rawHeaders, warnings, '형식이 올바르지 않은 헤더 줄을 무시했습니다');
             }
 
             if (/^https?:\/\//i.test(requestTarget)) {
@@ -382,11 +390,7 @@
                 });
             }
 
-            const hdrConfig = getHeaderConfig(profile);
-            inputs.nonce = rawHeaders[hdrConfig.nonce] || '';
-            inputs.timestampStr = rawHeaders[hdrConfig.timestamp] || '';
-            inputs.signature = rawHeaders[hdrConfig.signature] || '';
-            inputs.reqDigest = rawHeaders[hdrConfig.digest] || '';
+            assignPopHeadersToInputs(inputs, rawHeaders, profile);
 
             const { filled, missing } = computeFilledAndMissing(inputs);
             return {
@@ -470,25 +474,7 @@
             const rawHeaders = {};
 
             const addHeaderString = (headerStr) => {
-                const colonIdx = headerStr.indexOf(':');
-                if (colonIdx <= 0) {
-                    warnings.push({
-                        code: 'MALFORMED_HEADER',
-                        message: `형식이 올바르지 않은 -H 헤더 인자를 무시했습니다: ${headerStr}`
-                    });
-                    return;
-                }
-                const hName = headerStr.slice(0, colonIdx).trim();
-                const hVal = headerStr.slice(colonIdx + 1).trim();
-                const hKey = hName.toLowerCase();
-                if (seenHeaders[hKey]) {
-                    warnings.push({
-                        code: 'DUPLICATE_HEADER',
-                        message: `중복된 헤더('${hName}')가 감지되어 마지막 값을 사용했습니다.`
-                    });
-                }
-                seenHeaders[hKey] = (seenHeaders[hKey] || 0) + 1;
-                rawHeaders[hKey] = hVal;
+                recordHeaderEntry(headerStr, seenHeaders, rawHeaders, warnings, '형식이 올바르지 않은 -H 헤더 인자를 무시했습니다');
             };
 
             const addDataValue = (optName, val) => {
@@ -676,11 +662,7 @@
                 inputs.method = 'GET';
             }
 
-            const hdrConfig = getHeaderConfig(profile);
-            inputs.nonce = rawHeaders[hdrConfig.nonce] || '';
-            inputs.timestampStr = rawHeaders[hdrConfig.timestamp] || '';
-            inputs.signature = rawHeaders[hdrConfig.signature] || '';
-            inputs.reqDigest = rawHeaders[hdrConfig.digest] || '';
+            assignPopHeadersToInputs(inputs, rawHeaders, profile);
 
             const { filled, missing } = computeFilledAndMissing(inputs);
             return {

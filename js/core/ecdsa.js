@@ -8,25 +8,24 @@
     }
     root.PopCore = Object.assign(root.PopCore || {}, mod);
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (encoding) {
-    const { _atob, _btoa, _crypto } = encoding;
+    const { _atob, _btoa, _crypto, binaryStringToBytes, bytesToBinaryString } = encoding;
     const RAW_SIGNATURE_BYTES = 64;
     const HALF_SIGNATURE_BYTES = 32;
     const MIN_DER_BYTES = 8;
+    const PEM_PUBLIC_KEY_HEADER = "-----BEGIN PUBLIC KEY-----";
+    const PEM_PUBLIC_KEY_FOOTER = "-----END PUBLIC KEY-----";
 
     async function importPublicKey(pem) {
-        const pemHeader = "-----BEGIN PUBLIC KEY-----";
-        const pemFooter = "-----END PUBLIC KEY-----";
-
-        const hasHeader = pem.includes(pemHeader);
-        const hasFooter = pem.includes(pemFooter);
+        const hasHeader = pem.includes(PEM_PUBLIC_KEY_HEADER);
+        const hasFooter = pem.includes(PEM_PUBLIC_KEY_FOOTER);
         let pemContents = "";
 
         if (hasHeader && hasFooter) {
-            pemContents = pem.substring(pem.indexOf(pemHeader) + pemHeader.length, pem.indexOf(pemFooter)).replace(/\s/g, '');
+            pemContents = pem.substring(pem.indexOf(PEM_PUBLIC_KEY_HEADER) + PEM_PUBLIC_KEY_HEADER.length, pem.indexOf(PEM_PUBLIC_KEY_FOOTER)).replace(/\s/g, '');
         } else if (!hasHeader && !hasFooter) {
             pemContents = pem.replace(/\s/g, '');
         } else {
-            const missing = !hasHeader ? "시작 태그(-----BEGIN PUBLIC KEY-----)" : "종료 태그(-----END PUBLIC KEY-----)";
+            const missing = !hasHeader ? `시작 태그(${PEM_PUBLIC_KEY_HEADER})` : `종료 태그(${PEM_PUBLIC_KEY_FOOTER})`;
             throw new Error(`공개키 형식이 올바르지 않습니다. ${missing}가 잘려나갔습니다.\n아예 태그 없이 중간 값(Base64)만 넣으시거나, 양쪽 태그를 모두 포함해 주세요.`);
         }
 
@@ -34,16 +33,11 @@
             throw new Error("공개키 내부에 실제 키 데이터(Base64)가 비어 있습니다.");
         }
 
-        let binaryDerString;
+        let binaryDer;
         try {
-            binaryDerString = _atob(pemContents);
+            binaryDer = binaryStringToBytes(_atob(pemContents));
         } catch (e) {
             throw new Error("공개키 내부 데이터(Base64) 디코딩에 실패했습니다.\n공백 외의 잘못된 문자(한글, 특수기호 등)가 섞여 있는지 확인하세요.");
-        }
-
-        const binaryDer = new Uint8Array(binaryDerString.length);
-        for (let i = 0; i < binaryDerString.length; i++) {
-            binaryDer[i] = binaryDerString.charCodeAt(i);
         }
 
         try {
@@ -126,8 +120,8 @@
             ["sign", "verify"]
         );
         const spki = await _crypto.subtle.exportKey("spki", keyPair.publicKey);
-        const spkiBase64 = _btoa(String.fromCharCode(...new Uint8Array(spki)));
-        const pubkeyPem = `-----BEGIN PUBLIC KEY-----\n${spkiBase64.match(/.{1,64}/g).join('\n')}\n-----END PUBLIC KEY-----`;
+        const spkiBase64 = _btoa(bytesToBinaryString(spki));
+        const pubkeyPem = `${PEM_PUBLIC_KEY_HEADER}\n${spkiBase64.match(/.{1,64}/g).join('\n')}\n${PEM_PUBLIC_KEY_FOOTER}`;
 
         const data = new TextEncoder().encode(canonicalStr);
         const signatureBytes = await _crypto.subtle.sign(
@@ -140,6 +134,8 @@
     }
 
     return {
+        PEM_PUBLIC_KEY_HEADER,
+        PEM_PUBLIC_KEY_FOOTER,
         importPublicKey,
         derToRaw,
         verifySig,
