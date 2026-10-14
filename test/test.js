@@ -3497,6 +3497,283 @@ async function runTests() {
                 failed++;
             }
         }
+
+        // 45) Verification of multi-byte hex escapes, argument-taking flags, whitespace normalization, numeric hardening, looksLikeJson refinement
+        {
+            let t1Ok = false;
+            let t2Ok = false;
+            let t3Ok = false;
+            let t4Ok = false;
+            let t5Ok = false;
+
+            // 1) Multi-byte UTF-8 Hex Escapes
+            try {
+                const curlUtf8 = "curl 'https://api.example.com/v1/tx' -d $'{\"name\":\"\\xed\\x99\\x8d\"}'";
+                const parsedUtf8 = parseCurl(curlUtf8);
+                const curlMulti = "curl 'https://api.example.com/v1/tx' -d $'\\xed\\x99\\x8d\\xea\\xb8\\xb8\\xeb\\x8f\\x99'";
+                const parsedMulti = parseCurl(curlMulti);
+                if (
+                    parsedUtf8.ok && parsedUtf8.inputs.bodyStr === '{"name":"홍"}' &&
+                    parsedMulti.ok && parsedMulti.inputs.bodyStr === '홍길동'
+                ) {
+                    t1Ok = true;
+                }
+            } catch (e) {
+                console.log("Error in t1:", e);
+            }
+
+            // 2) Harmless argument-taking flags and URL candidate preference
+            try {
+                const curlFlags = [
+                    "curl https://api.example.com/v1/tx -A 'Mozilla/5.0' -b 'c=1' -e 'https://ref.com' -m 10 --connect-timeout 5",
+                    "curl --user-agent='Mozilla/5.0' --cookie='c=1' --referer='https://ref.com' --max-time=10 --connect-timeout=5 https://api.example.com/v1/tx",
+                    "curl -A\"Mozilla/5.0\" -bc=1 -ehttps://ref.com -m10 https://api.example.com/v1/tx",
+                    "curl --unknown-flag bareToken https://api.example.com/v1/tx",
+                    "curl https://api.example.com/v1/tx --unknown-flag bareToken"
+                ];
+                const resFlags = curlFlags.map(c => parseCurl(c));
+                const allUrlsMatch = resFlags.every(r => r.inputs.urlStr === 'https://api.example.com/v1/tx');
+                const ignoredWarningsPresent = resFlags[0].warnings.filter(w => w.code === 'IGNORED_FLAG').length === 5 &&
+                                              resFlags[1].warnings.filter(w => w.code === 'IGNORED_FLAG').length === 5 &&
+                                              resFlags[2].warnings.filter(w => w.code === 'IGNORED_FLAG').length === 4;
+                if (allUrlsMatch && ignoredWarningsPresent) {
+                    t2Ok = true;
+                }
+            } catch (e) {
+                console.log("Error in t2:", e);
+            }
+
+            // 3) Whitespace normalization in diagnose()
+            try {
+                const vCase = fixtures.cases[0];
+                const diagSpaced = await PopCore.diagnose({
+                    method: " POST ",
+                    urlStr: `https://${vCase.host}${vCase.path}?${vCase.query}`,
+                    bodyStr: vCase.body,
+                    nonce: " n-test 123 ",
+                    timestampStr: ` ${vCase.timestamp} \n`,
+                    signature: `\n ${vCase.signature} \n`,
+                    pubkeyPem: pubkeyPem,
+                    evalTime: vCase.evalTime,
+                    reqDigest: ` sha256=${vCase.digest ? vCase.digest.replace('sha256=', '') : ''} `
+                });
+                const wsWarn = diagSpaced.warnings.find(w => w.code === 'WHITESPACE_STRIPPED');
+                const hasExpectedFields = wsWarn &&
+                    wsWarn.message.includes('HTTP 메서드') &&
+                    wsWarn.message.includes('Nonce') &&
+                    wsWarn.message.includes('Timestamp') &&
+                    wsWarn.message.includes('Signature') &&
+                    wsWarn.message.includes('Body-Digest');
+
+                const diagNoStrip = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: `https://${vCase.host}${vCase.path}?${vCase.query}`,
+                    bodyStr: vCase.body,
+                    nonce: "n1",
+                    timestampStr: "abc",
+                    signature: vCase.signature,
+                    pubkeyPem: pubkeyPem,
+                    stripWhitespace: false
+                });
+
+                if (diagSpaced.error === null && hasExpectedFields && diagNoStrip.warnings.every(w => w.code !== 'WHITESPACE_STRIPPED')) {
+                    t3Ok = true;
+                }
+            } catch (e) {
+                console.log("Error in t3:", e);
+            }
+
+            // 4) Numeric hardening (>15 digits, !isSafeInteger, evalTime types and finiteness)
+            try {
+                const vCase = fixtures.cases[0];
+                const diagLongTs = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: `https://${vCase.host}${vCase.path}?${vCase.query}`,
+                    bodyStr: vCase.body,
+                    nonce: "n1",
+                    timestampStr: "1234567890123456", // 16 digits
+                    signature: vCase.signature,
+                    pubkeyPem: pubkeyPem
+                });
+                const longTsRejected = diagLongTs.error && diagLongTs.error.code === PopCore.ERROR_CODES.INVALID_TIMESTAMP;
+
+                const diagMaxSafe = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: `https://${vCase.host}${vCase.path}?${vCase.query}`,
+                    bodyStr: vCase.body,
+                    nonce: "n1",
+                    timestampStr: "9999999999999999", // 16 digits > max safe
+                    signature: vCase.signature,
+                    pubkeyPem: pubkeyPem
+                });
+                const maxSafeRejected = diagMaxSafe.error && diagMaxSafe.error.code === PopCore.ERROR_CODES.INVALID_TIMESTAMP;
+
+                // Stage 2 evalTime fallback checks
+                const nowSec = Math.floor(Date.now() / 1000);
+                const s2Whitespace = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: `https://${vCase.host}${vCase.path}?${vCase.query}`,
+                    bodyStr: vCase.body,
+                    nonce: "n1",
+                    timestampStr: String(nowSec),
+                    signature: vCase.signature,
+                    pubkeyPem: pubkeyPem,
+                    evalTime: "   " // whitespace only -> fallback to now -> pass
+                });
+                const s2Bool = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: `https://${vCase.host}${vCase.path}?${vCase.query}`,
+                    bodyStr: vCase.body,
+                    nonce: "n1",
+                    timestampStr: String(nowSec),
+                    signature: vCase.signature,
+                    pubkeyPem: pubkeyPem,
+                    evalTime: true // boolean -> fallback to now -> pass
+                });
+                const s2Infinity = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: `https://${vCase.host}${vCase.path}?${vCase.query}`,
+                    bodyStr: vCase.body,
+                    nonce: "n1",
+                    timestampStr: String(nowSec),
+                    signature: vCase.signature,
+                    pubkeyPem: pubkeyPem,
+                    evalTime: Infinity // Infinity -> fallback to now -> pass
+                });
+
+                const evalTimePassed = s2Whitespace.stages[1].status === 'pass' &&
+                                       s2Bool.stages[1].status === 'pass' &&
+                                       s2Infinity.stages[1].status === 'pass';
+
+                if (longTsRejected && maxSafeRejected && evalTimePassed) {
+                    t4Ok = true;
+                }
+            } catch (e) {
+                console.log("Error in t4:", e);
+            }
+
+            // 5) Refine looksLikeJson
+            try {
+                const plainLog = "[INFO] server started";
+                const errLog = "[ERROR] 2026-10-14 Connection failed";
+                const validArray = "[1, 2, 3]";
+                const brokenArrayWithObject = "[ {\"a\": 1";
+                const brokenArrayWithBool = "[ true, ";
+                const brokenArrayWithNull = "[ null, ";
+                const brokenArrayWithNumber = "[ 42, ";
+                const brokenArrayWithString = "[ 'str', ";
+
+                const plainIsJson = PopCore.looksLikeJson(plainLog);
+                const errIsJson = PopCore.looksLikeJson(errLog);
+                const validIsJson = PopCore.looksLikeJson(validArray);
+                const truncObjIsJson = PopCore.looksLikeJson(brokenArrayWithObject);
+                const truncBoolIsJson = PopCore.looksLikeJson(brokenArrayWithBool);
+                const truncNullIsJson = PopCore.looksLikeJson(brokenArrayWithNull);
+                const truncNumIsJson = PopCore.looksLikeJson(brokenArrayWithNumber);
+                const truncStrIsJson = PopCore.looksLikeJson(brokenArrayWithString);
+
+                const plainDiag = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: plainLog,
+                    nonce: "n1",
+                    timestampStr: "1700000000",
+                    signature: validSig,
+                    pubkeyPem: pubkeyPem
+                });
+                const noInvalidJsonWarn = !plainDiag.warnings.some(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
+
+                if (
+                    !plainIsJson && !errIsJson && validIsJson &&
+                    truncObjIsJson && truncBoolIsJson && truncNullIsJson &&
+                    truncNumIsJson && truncStrIsJson && noInvalidJsonWarn
+                ) {
+                    t5Ok = true;
+                }
+            } catch (e) {
+                console.log("Error in t5:", e);
+            }
+
+            if (t1Ok && t2Ok && t3Ok && t4Ok && t5Ok) {
+                passed++;
+            } else {
+                console.log(`[FAIL] regression-fixes-5-items: t1Ok=${t1Ok}, t2Ok=${t2Ok}, t3Ok=${t3Ok}, t4Ok=${t4Ok}, t5Ok=${t5Ok}`);
+                failed++;
+            }
+        }
+
+        // 46) BFS deduplication & Stage 5 maxSearchNodes cap test
+        {
+            let s5CapOk = false;
+            let sameDepthDedupeOk = false;
+
+            try {
+                // 1) Stage 5 maxSearchNodes cap
+                const s5Profile = Object.assign({}, PopCore.PaperProfile, { maxSearchNodes: 2 });
+                const s5Res = await PopCore.diagnose({
+                    method: 'POST',
+                    urlStr: 'https://api.example.com/v1/tx',
+                    bodyStr: '{"amount": 1000}',
+                    nonce: 'n1',
+                    timestampStr: '1700000000',
+                    signature: fixtures.cases[0].signature,
+                    pubkeyPem: fixtures.public_key,
+                    evalTime: 1700000000,
+                    reqDigest: 'sha256=unmatchable_digest_that_does_not_exist_in_catalog'
+                }, s5Profile);
+
+                if (s5Res.stage5HypothesisResult && s5Res.stage5HypothesisResult.reduced === true) {
+                    s5CapOk = true;
+                }
+            } catch (e) {
+                console.log("Error in s5Cap:", e);
+            }
+
+            try {
+                // 2) Indistinguishable query parameters with 0 duplicate verify calls and stateKey including stdBase64Signature
+                const indCase = fixtures.cases.find(x => x.name === 'indistinguishable');
+                const origVerify = _crypto.subtle.verify.bind(_crypto.subtle);
+                let callCount = 0;
+                let dupCalls = 0;
+                const seenKeys = new Set();
+                _crypto.subtle.verify = async (alg, key, sig, data) => {
+                    callCount++;
+                    const keyStr = `${PopCore.bytesToHex(sig)}|${new TextDecoder().decode(data)}`;
+                    if (seenKeys.has(keyStr)) dupCalls++;
+                    else seenKeys.add(keyStr);
+                    return origVerify(alg, key, sig, data);
+                };
+
+                try {
+                    const res = await PopCore.diagnose({
+                        method: indCase.method,
+                        urlStr: `https://${indCase.host}${indCase.path}?${indCase.query}`,
+                        bodyStr: indCase.body,
+                        nonce: indCase.nonce,
+                        timestampStr: String(indCase.timestamp),
+                        signature: indCase.signature,
+                        pubkeyPem,
+                        evalTime: indCase.evalTime,
+                        reqDigest: indCase.digest
+                    });
+                    const s = res.hypothesisResult && res.hypothesisResult.sets && res.hypothesisResult.sets[0];
+                    if (dupCalls === 0 && s && s.type === 'indistinguishable' && s.items.length === 2) {
+                        sameDepthDedupeOk = true;
+                    }
+                } finally {
+                    _crypto.subtle.verify = origVerify;
+                }
+            } catch (e) {
+                console.log("Error in sameDepthDedupe:", e);
+            }
+
+            if (s5CapOk && sameDepthDedupeOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] bfs-dedupe-and-stage5-cap: s5CapOk=${s5CapOk}, sameDepthDedupeOk=${sameDepthDedupeOk}`);
+                failed++;
+            }
+        }
     }
 
     const total = passed + failed + skipped;

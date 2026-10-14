@@ -86,8 +86,11 @@
         }
         const first = trimmed[0];
         const last = trimmed[trimmed.length - 1];
-        if (first === '{' || first === '[') {
+        if (first === '{') {
             return true;
+        }
+        if (first === '[') {
+            return last === ']' || /^\[\s*(?:["'\d{\[\]]|true\b|false\b|null\b)/.test(trimmed);
         }
         if (last === '}') {
             return /"[^"\\\r\n]*"\s*:/.test(trimmed);
@@ -299,8 +302,10 @@
         }
 
         const cleanTimestampStr = norm.timestampStr.trim();
-        const timestamp = /^\d+$/.test(cleanTimestampStr) ? parseInt(cleanTimestampStr, 10) : NaN;
-        if (isNaN(timestamp)) {
+        const timestamp = (/^\d+$/.test(cleanTimestampStr) && cleanTimestampStr.length <= 15)
+            ? parseInt(cleanTimestampStr, 10)
+            : NaN;
+        if (cleanTimestampStr.length > 15 || !Number.isSafeInteger(timestamp)) {
             return {
                 error: {
                     code: ERROR_CODES.INVALID_TIMESTAMP,
@@ -323,8 +328,13 @@
 
     function evaluateStage2Timestamp(timestamp, evalTime, profile) {
         const def = profile.stages[STAGE_IDS.TIMESTAMP];
-        const parsedEvalTime = (evalTime !== undefined && evalTime !== null && evalTime !== '') ? Number(evalTime) : NaN;
-        const effectiveEvalTime = !Number.isNaN(parsedEvalTime) ? parsedEvalTime : Math.floor(Date.now() / 1000);
+        let parsedEvalTime = NaN;
+        if (typeof evalTime === 'number') {
+            parsedEvalTime = evalTime;
+        } else if (typeof evalTime === 'string' && evalTime.trim() !== '') {
+            parsedEvalTime = Number(evalTime.trim());
+        }
+        const effectiveEvalTime = Number.isFinite(parsedEvalTime) ? parsedEvalTime : Math.floor(Date.now() / 1000);
         const timeDiff = Math.abs(effectiveEvalTime - timestamp);
         const passed = timeDiff <= profile.timestampToleranceSec;
         const stageName = typeof def.formatName === 'function'
@@ -457,8 +467,11 @@
         const queue = [{ req: stage5BaseReq, history: [], startIdx: 0 }];
         const stage5Matches = [];
         const stateCache = new Map();
-        stateCache.set(`${stage5BaseReq.rawBody}|${bodyHashHex}`, { depth: 0, matched: false });
+        stateCache.set(`${stage5BaseReq.rawBody}|${bodyHashHex}`, { depth: 0, matched: false, minNextIdx: 0 });
+        let evalCount = 0;
+        let reduced = false;
 
+        outerLoop:
         while (queue.length > 0) {
             const current = queue.shift();
             if (current.history.length >= profile.maxComboDepth) continue;
@@ -481,10 +494,31 @@
                     ...current.history,
                     { id: h.id, label: h.label, tag: h.tag, cause: h.cause, solution: h.solution }
                 ];
-                const isMatch = nextReq.bodyHash === cleanReqDigest && nextReq.bodyHash !== bodyHashHex;
-                if (!cached) {
-                    stateCache.set(stateKey, { depth: nextDepth, matched: isMatch });
+
+                if (cached && cached.depth === nextDepth) {
+                    if (cached.matched) {
+                        stage5Matches.push({
+                            history: nextHistory,
+                            canonical: buildString({ ...baseReq, bodyHash: cleanReqDigest }, profile),
+                            signatureHex: bytesToHex(baseReq.parsedSignature)
+                        });
+                    } else if (i + 1 < cached.minNextIdx) {
+                        cached.minNextIdx = i + 1;
+                        if (nextDepth < profile.maxComboDepth) {
+                            queue.push({ req: nextReq, history: nextHistory, startIdx: i + 1 });
+                        }
+                    }
+                    continue;
                 }
+
+                if (evalCount >= profile.maxSearchNodes) {
+                    reduced = true;
+                    break outerLoop;
+                }
+                evalCount++;
+
+                const isMatch = nextReq.bodyHash === cleanReqDigest && nextReq.bodyHash !== bodyHashHex;
+                stateCache.set(stateKey, { depth: nextDepth, matched: isMatch, minNextIdx: i + 1 });
 
                 if (isMatch) {
                     stage5Matches.push({
@@ -499,9 +533,9 @@
         }
 
         if (stage5Matches.length === 0) {
-            return { type: 'no-match', reduced: false };
+            return { type: 'no-match', reduced };
         }
-        return { type: 'found', sets: groupAndMinimizeMatches(stage5Matches), reduced: false };
+        return { type: 'found', sets: groupAndMinimizeMatches(stage5Matches), reduced };
     }
 
     function filterMinimalMatches(groupMatches) {
@@ -554,7 +588,7 @@
         const rootCanonical = buildString(baseReq, profile);
         const rootSigHex = bytesToHex(baseReq.parsedSignature);
         const stateCache = new Map();
-        stateCache.set(`${rootCanonical}|${rootSigHex}`, { depth: 0, verified: false });
+        stateCache.set(`${rootCanonical}|${rootSigHex}|${baseReq.stdBase64Signature ? 1 : 0}`, { depth: 0, verified: false, minNextIdx: 0 });
 
         const queue = [{ req: baseReq, history: [], startIdx: 0 }];
         const matches = [];
@@ -579,7 +613,7 @@
                 }
 
                 const nextDepth = current.history.length + 1;
-                const stateKey = `${nextCanonical}|${nextSigHex}`;
+                const stateKey = `${nextCanonical}|${nextSigHex}|${nextReq.stdBase64Signature ? 1 : 0}`;
                 const cached = stateCache.get(stateKey);
                 if (cached && cached.depth < nextDepth) {
                     continue;
@@ -590,20 +624,32 @@
                     { id: h.id, label: h.label, tag: h.tag, cause: h.cause, solution: h.solution }
                 ];
 
-                let isSigValid = false;
-                if (cached) {
-                    isSigValid = cached.verified;
-                } else {
-                    if (nextReq.parsedSignature.byteLength === profile.signatureByteLength) {
-                        if (verifyCount >= profile.maxSearchNodes) {
-                            reduced = true;
-                            break outerLoop;
+                if (cached && cached.depth === nextDepth) {
+                    if (cached.verified) {
+                        matches.push({
+                            history: nextHistory,
+                            canonical: nextCanonical,
+                            signatureHex: nextSigHex
+                        });
+                    } else if (i + 1 < cached.minNextIdx) {
+                        cached.minNextIdx = i + 1;
+                        if (nextDepth < profile.maxComboDepth) {
+                            queue.push({ req: nextReq, history: nextHistory, startIdx: i + 1 });
                         }
-                        verifyCount++;
-                        isSigValid = await verifySig(cryptoKey, nextReq.parsedSignature, nextCanonical);
                     }
-                    stateCache.set(stateKey, { depth: nextDepth, verified: isSigValid });
+                    continue;
                 }
+
+                let isSigValid = false;
+                if (nextReq.parsedSignature.byteLength === profile.signatureByteLength) {
+                    if (verifyCount >= profile.maxSearchNodes) {
+                        reduced = true;
+                        break outerLoop;
+                    }
+                    verifyCount++;
+                    isSigValid = await verifySig(cryptoKey, nextReq.parsedSignature, nextCanonical);
+                }
+                stateCache.set(stateKey, { depth: nextDepth, verified: isSigValid, minNextIdx: i + 1 });
 
                 if (isSigValid) {
                     matches.push({
@@ -663,6 +709,31 @@
             stage5HypothesisResult: null,
             hypothesisResult: null
         };
+
+        const stripWhitespace = (inputs && inputs.stripWhitespace !== false) && (!profile || profile.stripWhitespace !== false);
+        if (stripWhitespace) {
+            const spacedFields = [];
+            const cleanNoSpace = (name, val) => {
+                if (typeof val === 'string' && /\s/.test(val)) {
+                    spacedFields.push(name);
+                    return val.replace(/\s/g, '');
+                }
+                return val;
+            };
+
+            norm.method = cleanNoSpace('HTTP 메서드', norm.method);
+            norm.nonce = cleanNoSpace('Nonce', norm.nonce);
+            norm.timestampStr = cleanNoSpace('Timestamp', norm.timestampStr);
+            norm.signature = cleanNoSpace('Signature', norm.signature);
+            norm.reqDigest = cleanNoSpace('Body-Digest', norm.reqDigest);
+
+            if (spacedFields.length > 0) {
+                result.warnings.push({
+                    code: WARNING_CODES.WHITESPACE_STRIPPED,
+                    message: `다음 입력값의 앞뒤나 중간에 잘못된 공백(띄어쓰기, 줄바꿈)이 포함되어 있어 제거 후 진단했습니다: ${spacedFields.join(', ')}`
+                });
+            }
+        }
 
         const s1 = evaluateStage1Headers(norm, activeProfile);
         result.stages.push(s1.stage);

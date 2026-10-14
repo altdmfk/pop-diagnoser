@@ -211,36 +211,21 @@
             panel.classList.remove('empty');
             panel.textContent = '진단 중...';
 
-            const spacedFields = [];
-            const cleanNoSpace = (name, val) => {
-                if (/\s/.test(val)) {
-                    spacedFields.push(name);
-                    return val.replace(/\s/g, '');
-                }
-                return val;
-            };
-
             const inputs = {
-                method: cleanNoSpace('HTTP 메서드', document.getElementById('req-method').value),
+                method: document.getElementById('req-method').value,
                 urlStr: document.getElementById('req-url').value.trim(),
                 bodyStr: getBodyValue(),
                 contentType: getContentType(),
-                nonce: cleanNoSpace('Nonce', document.getElementById('req-nonce').value),
-                timestampStr: cleanNoSpace('Timestamp', document.getElementById('req-timestamp').value),
-                signature: cleanNoSpace('Signature', document.getElementById('req-signature').value),
+                nonce: document.getElementById('req-nonce').value,
+                timestampStr: document.getElementById('req-timestamp').value,
+                signature: document.getElementById('req-signature').value,
                 pubkeyPem: document.getElementById('req-pubkey').value.trim(),
-                reqDigest: cleanNoSpace('Body-Digest', document.getElementById('req-digest').value),
+                reqDigest: document.getElementById('req-digest').value,
                 evalTime: parseInt(evalTimeInput.value, 10)
             };
 
             try {
                 const result = await root.PopCore.diagnose(inputs);
-                if (spacedFields.length > 0) {
-                    result.warnings.push({
-                        code: (root.PopCore.WARNING_CODES && root.PopCore.WARNING_CODES.WHITESPACE_STRIPPED) || 'WHITESPACE_STRIPPED',
-                        message: `다음 입력값의 앞뒤나 중간에 잘못된 공백(띄어쓰기, 줄바꿈)이 포함되어 있어 제거 후 진단했습니다: ${spacedFields.join(', ')}`
-                    });
-                }
                 renderResult(result);
                 if (typeof refreshInspector === 'function') {
                     await refreshInspector();

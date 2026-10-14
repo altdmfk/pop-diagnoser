@@ -171,8 +171,14 @@
                             else if (next === "'") { current += "'"; i += 2; }
                             else if (next === '"') { current += '"'; i += 2; }
                             else if (next === 'x' && /^[0-9a-fA-F]{2}/.test(src.slice(i + 2, i + 4))) {
-                                current += String.fromCharCode(parseInt(src.slice(i + 2, i + 4), 16));
-                                i += 4;
+                                const byteList = [];
+
+                                while (i + 3 < len && src[i] === '\\' && src[i + 1] === 'x' && /^[0-9a-fA-F]{2}/.test(src.slice(i + 2, i + 4))) {
+                                    byteList.push(parseInt(src.slice(i + 2, i + 4), 16));
+                                    i += 4;
+                                }
+                                
+                                current += new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(byteList));
                             } else if (next === 'u' && /^[0-9a-fA-F]{4}/.test(src.slice(i + 2, i + 6))) {
                                 current += String.fromCharCode(parseInt(src.slice(i + 2, i + 6), 16));
                                 i += 6;
@@ -593,6 +599,41 @@
                     continue;
                 }
 
+                // Harmless flags taking a single argument
+                if (
+                    tok === '-A' || tok === '--user-agent' ||
+                    tok === '-b' || tok === '--cookie' ||
+                    tok === '-e' || tok === '--referer' ||
+                    tok === '-m' || tok === '--max-time' ||
+                    tok === '--connect-timeout'
+                ) {
+                    warnings.push({
+                        code: 'IGNORED_FLAG',
+                        message: `서명 생성에 영향을 주지 않는 부가 옵션('${tok}')은 무시되었습니다.`
+                    });
+                    idx += (idx + 1 < tokens.length) ? 2 : 1;
+                    continue;
+                }
+
+                if (
+                    tok.startsWith('--user-agent=') ||
+                    tok.startsWith('--cookie=') ||
+                    tok.startsWith('--referer=') ||
+                    tok.startsWith('--max-time=') ||
+                    tok.startsWith('--connect-timeout=') ||
+                    (tok.startsWith('-A') && tok.length > 2) ||
+                    (tok.startsWith('-b') && tok.length > 2) ||
+                    (tok.startsWith('-e') && tok.length > 2) ||
+                    (tok.startsWith('-m') && tok.length > 2)
+                ) {
+                    warnings.push({
+                        code: 'IGNORED_FLAG',
+                        message: `서명 생성에 영향을 주지 않는 부가 옵션('${tok}')은 무시되었습니다.`
+                    });
+                    idx++;
+                    continue;
+                }
+
                 // Explicitly unsupported request-transforming options
                 if (tok === '--data-urlencode' || tok.startsWith('--data-urlencode=')) {
                     unsupported.push({
@@ -643,7 +684,12 @@
             }
 
             if (urlCandidates.length > 0) {
-                inputs.urlStr = urlCandidates[urlCandidates.length - 1];
+                const httpCandidates = urlCandidates.filter(c => /^https?:\/\//i.test(c));
+                if (httpCandidates.length > 0) {
+                    inputs.urlStr = httpCandidates[httpCandidates.length - 1];
+                } else {
+                    inputs.urlStr = urlCandidates[urlCandidates.length - 1];
+                }
             }
 
             if (dataParts.length === 1) {
