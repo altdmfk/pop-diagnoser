@@ -11,15 +11,18 @@
   <div class="container">
     <header>
       <h1>FIDO2 PoP 요청 진단기</h1>
-      <p>
-        일반 인증 토큰은 탈취되면 다른 기기에서도 그대로 재사용할 수 있습니다. 이를 막기 위해
-        <a href="https://altdmfk.github.io/fido2-pop-gateway/" target="_blank" rel="noopener noreferrer">FIDO2 PoP(소유 증명) 게이트웨이</a>는
-        클라이언트가 요청을 보낼 때마다 <strong>HTTP 요청 내용(메서드, 주소, 시각, 난수, 본문 해시)을 개인키로 직접 서명</strong>하게 하고, 서버가 등록된 공개키로 그 서명을 확인합니다.
+      <p class="paper-title-badge">
+        기반 논문: <strong>&ldquo;Design and Performance Analysis of a FIDO2 Hardware-Isolated Key-Based Proof-of-Possession Reverse Proxy Gateway&rdquo;</strong>
+        (<a href="https://altdmfk.github.io/fido2-pop-gateway/" target="_blank" rel="noopener noreferrer">논문 및 게이트웨이 프로젝트</a>)
       </p>
       <div class="alert info">
-        서명할 때 사용한 문자열의 줄바꿈, 대소문자, 쿼리 순서, 인코딩 방식이 게이트웨이 기준과 조금만 달라도 서버는 구체적인 이유 없이 <code>401</code>·<code>403</code>·<code>400</code> 오류만 반환합니다.<br>
-        이 도구는 브라우저 안에서 게이트웨이의 1~5단계 검증 과정을 그대로 실행해 보고, 실패했을 때 <strong>어느 단계에서 어떤 규칙 차이 때문에 거절되었는지</strong> 찾아줍니다. (서버 DB 조회가 필요한 Nonce 중복 검사와 JWT 바인딩 확인은 제외됩니다.)
+        <strong>이 앱은 FIDO2 PoP 게이트웨이를 연동하는 클라이언트 개발자가 서명 불일치로 <code>401</code>·<code>403</code>·<code>400</code> 오류를 겪을 때, 논문의 5단계 검증 규격과 14개 가설 역추적으로 어느 단계에서 어떤 규칙 차이 때문에 거절되었는지 찾아주어 원인 분석과 신속한 문제 해결을 돕습니다.</strong>
       </div>
+      <p>
+        일반 인증 토큰은 탈취되면 다른 기기에서도 그대로 재사용할 수 있습니다. 이를 막기 위해
+        FIDO2 PoP(소유 증명) 게이트웨이는
+        클라이언트가 요청을 보낼 때마다 <strong>HTTP 요청 내용(메서드, 주소, 시각, 난수, 본문 해시)을 개인키로 직접 서명</strong>하게 하고, 서버가 등록된 공개키로 그 서명을 확인합니다. (서버 DB 조회가 필요한 Nonce 중복 검사와 JWT 바인딩 확인은 오프라인 진단에서 제외됩니다.)
+      </p>
     </header>
 
     <div class="top-action-bar">

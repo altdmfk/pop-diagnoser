@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/altdmfk/pop-diagnoser/actions/workflows/test.yml/badge.svg)](https://github.com/altdmfk/pop-diagnoser/actions/workflows/test.yml)
 
-> **FIDO2 PoP 게이트웨이의 `401`/`403`/`400` 거절 원인을 5단계 검증 파이프라인과 14개 가설 BFS 탐색으로 역추적하는 무의존성·오프라인 진단기**  
-> **Zero-dependency offline diagnostic tool that pinpoints FIDO2 Proof-of-Possession (`401`/`403`/`400`) signature and digest failures via 5-stage verification and 14-hypothesis BFS search.**
+> **이 앱은 FIDO2 PoP 게이트웨이를 연동하는 클라이언트 개발자가 서명 불일치로 `401`/`403`/`400` 오류를 겪을 때, 논문의 5단계 정규화 파이프라인 규격과 14개 가설 BFS 탐색을 활용해 불일치 원인과 정규화 Diff를 오프라인에서 역추적하도록 돕습니다.**  
+> **This zero-dependency offline diagnostic tool helps client developers integrating FIDO2 Proof-of-Possession gateways pinpoint `401`/`403`/`400` signature and digest failures using the paper's 5-stage canonical pipeline specifications and 14-hypothesis BFS search.**
 
 ---
 
