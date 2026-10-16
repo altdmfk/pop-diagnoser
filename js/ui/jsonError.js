@@ -10,15 +10,18 @@
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (coreJsonError) {
     function isFullWidthChar(ch) {
         if (ch === undefined || ch === null || ch === '') return false;
-        const code = typeof ch === 'number' ? ch : String(ch).charCodeAt(0);
+        const code = typeof ch === 'number' ? ch : String(ch).codePointAt(0);
         return (
             (code >= 0x1100 && code <= 0x11FF) ||
             (code >= 0x2E80 && code <= 0x9FFF) ||
-            (code >= 0xAC00 && code <= 0xD7A3) ||
+            (code >= 0xA960 && code <= 0xA97F) ||
+            (code >= 0xAC00 && code <= 0xD7FF) ||
             (code >= 0xF900 && code <= 0xFAFF) ||
             (code >= 0xFE30 && code <= 0xFE6F) ||
             (code >= 0xFF01 && code <= 0xFF60) ||
-            (code >= 0xFFE0 && code <= 0xFFE6)
+            (code >= 0xFFE0 && code <= 0xFFE6) ||
+            (code >= 0x1F000 && code <= 0x1FAFF) ||
+            (code >= 0x20000 && code <= 0x323AF)
         );
     }
 
@@ -38,13 +41,17 @@
         let pointer = '';
         const limit = Math.max(0, Math.min(loc.column - 1, problemLine.length));
         for (let i = 0; i < limit; i++) {
+            const cp = problemLine.codePointAt(i);
             const ch = problemLine[i];
             if (ch === '\t') {
                 pointer += '\t';
-            } else if (isFullWidthChar(ch)) {
+            } else if (isFullWidthChar(cp)) {
                 pointer += '  ';
             } else {
                 pointer += ' ';
+            }
+            if (cp > 0xFFFF) {
+                i++;
             }
         }
         pointer += '▲';

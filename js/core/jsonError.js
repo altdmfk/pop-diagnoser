@@ -17,6 +17,35 @@
         SYNTAX_ERROR: 'ERR_JSON_SYNTAX_ERROR'
     };
 
+    function countUnquotedDelimiters(str) {
+        let braces = 0;
+        let brackets = 0;
+        let inString = false;
+        for (let i = 0; i < str.length; i++) {
+            const ch = str[i];
+            if (inString) {
+                if (ch === '\\') {
+                    i++;
+                } else if (ch === '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (ch === '"') {
+                inString = true;
+            } else if (ch === '{') {
+                braces++;
+            } else if (ch === '}') {
+                braces--;
+            } else if (ch === '[') {
+                brackets++;
+            } else if (ch === ']') {
+                brackets--;
+            }
+        }
+        return { braces, brackets };
+    }
+
     function detectJsonErrorHint(e, jsonStr) {
         if (!jsonStr || typeof jsonStr !== 'string') return null;
         const trimmed = jsonStr.trim();
@@ -44,14 +73,15 @@
             }
         }
 
-        if (trimmed.startsWith('{') && !trimmed.endsWith('}')) {
+        const balance = countUnquotedDelimiters(trimmed);
+        if (trimmed.startsWith('{') && (!trimmed.endsWith('}') || balance.braces > 0)) {
             return {
                 hintCode: JSON_HINT_CODES.MISSING_CLOSE_BRACE,
                 hint: "맨 끝의 닫는 중괄호('}')가 누락되었거나 본문 끝이 잘려 있는지 확인해 주세요.",
                 hintExample: '(예: { ... })'
             };
         }
-        if (trimmed.startsWith('[') && !trimmed.endsWith(']')) {
+        if (trimmed.startsWith('[') && (!trimmed.endsWith(']') || balance.brackets > 0)) {
             return {
                 hintCode: JSON_HINT_CODES.MISSING_CLOSE_BRACKET,
                 hint: "맨 끝의 닫는 대괄호(']')가 누락되었거나 본문 끝이 잘려 있는지 확인해 주세요.",
@@ -75,7 +105,7 @@
             };
         }
 
-        const unquotedKeyMatch = trimmed.match(/(?:[{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/);
+        const unquotedKeyMatch = trimmed.match(/(?:[{,]\s*)([a-zA-Z_$\u0080-\uFFFF][a-zA-Z0-9_$\u0080-\uFFFF-]*)\s*:/);
         if (unquotedKeyMatch && !unquotedKeyMatch[1].startsWith('"')) {
             return {
                 hintCode: JSON_HINT_CODES.UNQUOTED_KEY,
@@ -84,7 +114,7 @@
             };
         }
 
-        const unquotedValMatch = trimmed.match(/:\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*[,}\]]/);
+        const unquotedValMatch = trimmed.match(/:\s*([a-zA-Z_$\u0080-\uFFFF][a-zA-Z0-9_$\u0080-\uFFFF]*)\s*[,}\]]/);
         if (unquotedValMatch) {
             const val = unquotedValMatch[1];
             if (!['true', 'false', 'null'].includes(val)) {
@@ -129,15 +159,18 @@
         try {
             const lineColMatch = msg.match(/line\s+(\d+)\s+column\s+(\d+)/i);
             const posMatch = msg.match(/position\s+(\d+)/i);
-            if ((lineColMatch || posMatch) && typeof jsonStr === 'string' && jsonStr.length > 0) {
+            const isEofError = !lineColMatch && !posMatch && /unexpected end of json|unexpected eof|end of data|unterminated/i.test(msg);
+            if ((lineColMatch || posMatch || isEofError) && typeof jsonStr === 'string' && jsonStr.length > 0) {
                 let l = 1;
                 let c = 1;
 
                 if (lineColMatch) {
                     l = parseInt(lineColMatch[1], 10);
                     c = parseInt(lineColMatch[2], 10);
-                } else if (posMatch) {
-                    const pos = parseInt(posMatch[1], 10);
+                } else {
+                    const pos = posMatch
+                        ? parseInt(posMatch[1], 10)
+                        : (jsonStr.replace(/\s+$/, '').length || jsonStr.length);
                     const upToPos = jsonStr.substring(0, pos);
                     const upToLines = upToPos.split(/\r?\n/);
                     l = upToLines.length;
