@@ -265,7 +265,7 @@
             format = 'invalid';
             error = {
                 code: 'INVALID_LENGTH',
-                message: `서명 바이트 길이(${byteLength}B)가 올바르지 않습니다. Raw(P1363) 서명은 64바이트여야 하며, ASN.1 DER 서명은 0x30(SEQUENCE)으로 시작해야 합니다.`
+                message: `서명 길이(${byteLength}B)가 규격과 다릅니다. FIDO2 PoP 서명은 64바이트 Raw(r||s, P1363) 형식이어야 합니다. DER 형식(보통 70~72바이트, 0x30으로 시작)이라면 Raw r||s 64바이트로 변환해서 입력하세요.`
             };
         }
 
@@ -292,31 +292,31 @@
         if (rBig === 0n) {
             warnings.push({
                 code: 'R_ZERO',
-                message: 'r 값이 0입니다. 유효한 ECDSA 서명에서 r은 1 이상 곡선 차수(n) 미만이어야 합니다.'
+                message: '서명 R 값이 0입니다. 서명 생성에 실패했거나 잘못된 값이 전달되었습니다.'
             });
         } else if (rBig >= P256_N) {
             warnings.push({
                 code: 'R_GE_N',
-                message: 'r 값이 P-256 곡선 차수(n) 이상입니다. 유효한 ECDSA 서명에서 r은 n 미만이어야 합니다.'
+                message: '서명 R 값이 P-256 허용 범위를 벗어났습니다. 서명 바이트가 손상되었거나 바이트 순서가 뒤바뀌었는지 확인하세요.'
             });
         }
 
         if (sBig === 0n) {
             warnings.push({
                 code: 'S_ZERO',
-                message: 's 값이 0입니다. 유효한 ECDSA 서명에서 s는 1 이상 곡선 차수(n) 미만이어야 합니다.'
+                message: '서명 S 값이 0입니다. 서명 생성에 실패했거나 잘못된 값이 전달되었습니다.'
             });
         } else if (sBig >= P256_N) {
             warnings.push({
                 code: 'S_GE_N',
-                message: 's 값이 P-256 곡선 차수(n) 이상입니다. 유효한 ECDSA 서명에서 s는 n 미만이어야 합니다.'
+                message: '서명 S 값이 P-256 허용 범위를 벗어났습니다. 서명 바이트가 손상되었거나 바이트 순서가 뒤바뀌었는지 확인하세요.'
             });
         }
 
         if (isHighS) {
             warnings.push({
                 code: 'HIGH_S',
-                message: 's > n/2 (High-S 서명): 표준 WebCrypto/ECDSA에서는 유효하지만, 서명 가변성(Malleability) 방지를 위해 Low-S만 강제하는 검증기에서는 거부될 수 있습니다.'
+                message: "서명 S 값이 상위 범위(High-S)에 있습니다. 표준 WebCrypto/ECDSA 검증은 통과하지만, 서명 변조(Malleability)를 막기 위해 Low-S만 허용하는 게이트웨이에서는 거부될 수 있습니다. 서명 라이브러리의 Low-S 정규화 옵션을 켜거나 s' = n - s 로 변환하세요."
             });
         }
 
@@ -431,7 +431,11 @@
         if (!outerSeq || outerSeq.tag !== 0x30 || outerSeq.nextOffset !== spkiBytes.length) {
             return createPubKeyFailReport({
                 ...baseMeta,
-                error: { code: 'INVALID_SPKI_DER', message: '공개키 SPKI DER 외곽 SEQUENCE 구조가 손상되었습니다.' }
+                error: {
+                    code: 'INVALID_SPKI_DER',
+                    subReason: 'outer_sequence',
+                    message: '공개키(SPKI) 내부 구조가 손상되었습니다. 복사 과정에서 문자가 누락되었거나 줄바꿈이 깨지지 않았는지, -----BEGIN PUBLIC KEY----- 헤더/푸터가 포함되어 있는지 확인하세요.'
+                }
             });
         }
 
@@ -459,7 +463,11 @@
         if (!algSeq || algSeq.tag !== 0x30 || algSeq.nextOffset > outerSeq.valueEnd) {
             return createPubKeyFailReport({
                 ...baseMeta,
-                error: { code: 'INVALID_SPKI_DER', message: 'SPKI AlgorithmIdentifier SEQUENCE 구조가 손상되었습니다.' }
+                error: {
+                    code: 'INVALID_SPKI_DER',
+                    subReason: 'algorithm_identifier_sequence',
+                    message: '공개키(SPKI) 내부 구조가 손상되었습니다. 복사 과정에서 문자가 누락되었거나 줄바꿈이 깨지지 않았는지, -----BEGIN PUBLIC KEY----- 헤더/푸터가 포함되어 있는지 확인하세요.'
+                }
             });
         }
 
@@ -467,7 +475,11 @@
         if (!algOidTlv || algOidTlv.tag !== 0x06 || algOidTlv.nextOffset > algSeq.valueEnd) {
             return createPubKeyFailReport({
                 ...baseMeta,
-                error: { code: 'INVALID_SPKI_DER', message: 'SPKI 알고리즘 OID(0x06)를 읽을 수 없습니다.' }
+                error: {
+                    code: 'INVALID_SPKI_DER',
+                    subReason: 'algorithm_oid',
+                    message: '공개키(SPKI) 내부 구조가 손상되었습니다. 복사 과정에서 문자가 누락되었거나 줄바꿈이 깨지지 않았는지, -----BEGIN PUBLIC KEY----- 헤더/푸터가 포함되어 있는지 확인하세요.'
+                }
             });
         }
 
@@ -483,7 +495,11 @@
                     ...baseMeta,
                     algorithmOid,
                     algorithmName,
-                    error: { code: 'INVALID_SPKI_DER', message: 'SPKI 알고리즘 파라미터 DER 구조가 손상되었습니다.' }
+                    error: {
+                        code: 'INVALID_SPKI_DER',
+                        subReason: 'algorithm_parameters',
+                        message: '공개키(SPKI) 내부 구조가 손상되었습니다. 복사 과정에서 문자가 누락되었거나 줄바꿈이 깨지지 않았는지, -----BEGIN PUBLIC KEY----- 헤더/푸터가 포함되어 있는지 확인하세요.'
+                    }
                 });
             }
             if (paramTlv.tag === 0x06) {
@@ -505,7 +521,11 @@
         ) {
             return createPubKeyFailReport({
                 ...algCurveMeta,
-                error: { code: 'INVALID_SPKI_DER', message: 'SPKI subjectPublicKey BIT STRING 구조가 손상되었습니다.' }
+                error: {
+                    code: 'INVALID_SPKI_DER',
+                    subReason: 'subject_public_key_bit_string',
+                    message: '공개키(SPKI) 내부 구조가 손상되었습니다. 복사 과정에서 문자가 누락되었거나 줄바꿈이 깨지지 않았는지, -----BEGIN PUBLIC KEY----- 헤더/푸터가 포함되어 있는지 확인하세요.'
+                }
             });
         }
 
@@ -544,7 +564,7 @@
                 pointFormat,
                 error: {
                     code: 'INVALID_POINT_PREFIX',
-                    message: `비압축 점 접두 바이트(0x04)가 아닙니다 (감지된 접두: ${prefixHex}). 65바이트 비압축 점(0x04 || X || Y)만 지원합니다.`
+                    message: `지원하지 않는 공개키 형식입니다. 이 진단기는 0x04로 시작하는 65바이트 비압축 공개키만 지원합니다(감지된 접두: ${prefixHex}). 압축형(02/03) 키는 비압축 형식으로 변환해서 입력하세요.`
                 }
             });
         }
@@ -556,7 +576,7 @@
                 pointFormat,
                 error: {
                     code: 'INVALID_POINT_LENGTH',
-                    message: `비압축 공개키 점의 바이트 길이(${pointBytes.length}B)가 올바르지 않습니다. 정확히 65바이트(0x04 + X 32B + Y 32B)여야 합니다.`
+                    message: `공개키 좌표 바이트 길이(${pointBytes.length}B)가 올바르지 않습니다. FIDO2 PoP 게이트웨이는 65바이트 비압축 공개키(0x04 접두어 + X 32B + Y 32B)만 지원합니다.`
                 }
             });
         }
@@ -576,7 +596,7 @@
                 onCurve: false,
                 error: {
                     code: 'POINT_NOT_ON_CURVE',
-                    message: '공개키 좌표 (X, Y)가 P-256 타원곡선 방정식(y² ≡ x³ - 3x + b mod p)을 만족하지 않습니다 (곡선 밖의 점).'
+                    message: '유효하지 않은 공개키 좌표입니다(P-256 곡선 검증 실패). 좌표 데이터가 손상되었거나 P-256이 아닌 다른 곡선(예: secp256k1)의 키일 수 있습니다.'
                 }
             });
         }

@@ -41,7 +41,7 @@
         if (sigReport.format === 'der') {
             const rStrip = sigReport.rLeadingZeroStripped ? '제거됨(0x00)' : '없음';
             const sStrip = sigReport.sLeadingZeroStripped ? '제거됨(0x00)' : '없음';
-            formatText = `der (ASN.1 DER → 64B 변환 | 선행 0x00: r=${rStrip}, s=${sStrip})`;
+            formatText = `der (ASN.1 DER → 64B Raw 변환 완료 | 선행 0x00: r=${rStrip}, s=${sStrip})`;
         } else if (sigReport.format === 'raw-rs(64B)') {
             formatText = 'raw-rs(64B) (IEEE P1363 64B Raw)';
         }
@@ -52,7 +52,7 @@
         if (sigReport.error) {
             const errBox = document.createElement('div');
             errBox.className = 'inspector-alert inspector-error';
-            errBox.textContent = `❌ [${sigReport.error.code}] ${sigReport.error.message}`;
+            errBox.textContent = `[오류] [${sigReport.error.code}] ${sigReport.error.message}`;
             container.appendChild(errBox);
         }
 
@@ -61,13 +61,13 @@
             warnBox.className = 'inspector-alert inspector-warn';
             sigReport.warnings.forEach((w, idx) => {
                 if (idx > 0) warnBox.appendChild(document.createElement('br'));
-                warnBox.appendChild(document.createTextNode(`⚠️ [${w.code}] ${w.message}`));
+                warnBox.appendChild(document.createTextNode(`[경고] [${w.code}] ${w.message}`));
             });
             container.appendChild(warnBox);
         } else if (!sigReport.error) {
             const okBox = document.createElement('div');
             okBox.className = 'inspector-alert inspector-ok';
-            okBox.textContent = '✅ 범위 정상 (1 ≤ r < n, 1 ≤ s ≤ n/2 Low-S)';
+            okBox.textContent = '[정상] 서명 범위 정상 (표준 Low-S 규격 준수)';
             container.appendChild(okBox);
         }
     }
@@ -85,9 +85,9 @@
 
         let onCurveText = '-';
         if (pubkeyReport.onCurve === true) {
-            onCurveText = '✅ P-256 곡선 위의 점 (y² ≡ x³ - 3x + b mod p 충족)';
+            onCurveText = '[정상] 정상 P-256 공개키 좌표 (곡선 검증 통과)';
         } else if (pubkeyReport.onCurve === false) {
-            onCurveText = '❌ 곡선 밖의 점 (방정식 불일치)';
+            onCurveText = '[불일치] 곡선 검증 실패 (유효하지 않은 P-256 공개키 좌표)';
         }
 
         container.appendChild(createRow('알고리즘', algText));
@@ -101,7 +101,7 @@
         if (pubkeyReport.error) {
             const errBox = document.createElement('div');
             errBox.className = 'inspector-alert inspector-error';
-            errBox.textContent = `❌ [${pubkeyReport.error.code}] ${pubkeyReport.error.message}`;
+            errBox.textContent = `[오류] [${pubkeyReport.error.code}] ${pubkeyReport.error.message}`;
             container.appendChild(errBox);
         }
 
@@ -110,7 +110,7 @@
             warnBox.className = 'inspector-alert inspector-warn';
             pubkeyReport.warnings.forEach((w, idx) => {
                 if (idx > 0) warnBox.appendChild(document.createElement('br'));
-                warnBox.appendChild(document.createTextNode(`⚠️ [${w.code}] ${w.message}`));
+                warnBox.appendChild(document.createTextNode(`[경고] [${w.code}] ${w.message}`));
             });
             container.appendChild(warnBox);
         }

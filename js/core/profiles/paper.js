@@ -54,7 +54,7 @@
             },
             [STAGE_IDS.SIGNATURE]: {
                 id: STAGE_IDS.SIGNATURE,
-                name: '4단계: 타원곡선 서명 검증 (ECDSA Math)',
+                name: '4단계: 전자서명 무결성 검증 (ECDSA P-256)',
                 passReason: 'ECDSA 검증 성공',
                 mismatchReason: '서명 검증 실패 (문자열 또는 키 불일치)',
                 missingDigestReason: 'X-Body-Digest 헤더 누락 (게이트웨이는 서명 검증 전 400 반환)',
@@ -63,7 +63,7 @@
             },
             [STAGE_IDS.DIGEST]: {
                 id: STAGE_IDS.DIGEST,
-                name: '5단계: 다이제스트 스트리밍 대조 (상태: 400)',
+                name: '5단계: 요청 본문(Body) 해시 대조',
                 passReason: '본문 해시가 헤더와 일치함',
                 missingDigestReason: '입력된 X-Body-Digest 헤더가 없습니다.',
                 mismatchReason: (expected, actual) => `본문 해시 불일치 (기대: ${expected}, 실제: ${actual})`
