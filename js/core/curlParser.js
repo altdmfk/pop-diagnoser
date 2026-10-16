@@ -182,6 +182,11 @@
                             } else if (next === 'u' && /^[0-9a-fA-F]{4}/.test(src.slice(i + 2, i + 6))) {
                                 current += String.fromCharCode(parseInt(src.slice(i + 2, i + 6), 16));
                                 i += 6;
+                            } else if (next === 'U' && /^[0-9a-fA-F]{1,8}/.test(src.slice(i + 2, i + 10))) {
+                                const hexMatch = src.slice(i + 2, i + 10).match(/^[0-9a-fA-F]{1,8}/)[0];
+                                const cp = parseInt(hexMatch, 16);
+                                current += cp <= 0x10FFFF ? String.fromCodePoint(cp) : '\uFFFD';
+                                i += 2 + hexMatch.length;
                             } else {
                                 current += next;
                                 i += 2;
@@ -204,6 +209,19 @@
                         let depth = 1;
                         i += 2;
                         while (i < len && depth > 0) {
+                            if (src[i] === '\\' && i + 1 < len) {
+                                i += 2;
+                                continue;
+                            }
+                            if (src[i] === "'" || src[i] === '"') {
+                                const q = src[i++];
+                                while (i < len && src[i] !== q) {
+                                    if (q === '"' && src[i] === '\\' && i + 1 < len) i += 2;
+                                    else i++;
+                                }
+                                if (i < len) i++;
+                                continue;
+                            }
                             if (src[i] === '(') depth++;
                             else if (src[i] === ')') depth--;
                             i++;
@@ -212,6 +230,8 @@
                         i += 2;
                         while (i < len && src[i] !== '}') i++;
                         if (i < len) i++;
+                    } else if (i + 1 < len && /[?@$!#*0-9-]/.test(src[i + 1])) {
+                        i += 2;
                     } else {
                         i++;
                         while (i < len && /[A-Za-z0-9_]/.test(src[i])) i++;
@@ -298,11 +318,47 @@
                             'SHELL_EXPANSION_UNSUPPORTED',
                             '보안상 큰따옴표 내부의 백틱(`...`) 명령어 치환은 지원하지 않습니다.'
                         );
-                    } else if (c === '$' && i + 1 < len && (src[i + 1] === '(' || src[i + 1] === '{' || /[A-Za-z_]/.test(src[i + 1]))) {
+                    } else if (c === '$' && i + 1 < len && (src[i + 1] === '(' || src[i + 1] === '{' || /[A-Za-z0-9_?@$!#*-]/.test(src[i + 1]))) {
                         pushUniqueUnsupported(
                             'SHELL_EXPANSION_UNSUPPORTED',
                             '보안상 큰따옴표 내부의 셸 변수/명령어 치환($VAR, $(...))은 지원하지 않습니다.'
                         );
+                        if (src[i + 1] === '(') {
+                            let depth = 1;
+                            current += '$(';
+                            i += 2;
+                            while (i < len && depth > 0) {
+                                if (src[i] === '\\' && i + 1 < len) {
+                                    current += src[i] + src[i + 1];
+                                    i += 2;
+                                    continue;
+                                }
+                                if (src[i] === "'" || src[i] === '"') {
+                                    const q = src[i];
+                                    current += q;
+                                    i++;
+                                    while (i < len && src[i] !== q) {
+                                        if (q === '"' && src[i] === '\\' && i + 1 < len) {
+                                            current += src[i] + src[i + 1];
+                                            i += 2;
+                                        } else {
+                                            current += src[i];
+                                            i++;
+                                        }
+                                    }
+                                    if (i < len) {
+                                        current += src[i];
+                                        i++;
+                                    }
+                                    continue;
+                                }
+                                if (src[i] === '(') depth++;
+                                else if (src[i] === ')') depth--;
+                                current += src[i];
+                                i++;
+                            }
+                            continue;
+                        }
                     }
                     current += c;
                     i++;
@@ -739,6 +795,7 @@
 
     return {
         MAX_INPUT_LENGTH,
+        createEmptyInputs,
         parseCurl,
         parseRawHttp
     };
