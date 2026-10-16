@@ -70,9 +70,9 @@
         title.className = 'import-report-title';
         if (parseResult.ok) {
             const fmtLabel = parseResult.format === 'raw-http' ? 'Raw HTTP' : 'cURL';
-            title.textContent = `📥 ${fmtLabel} 파싱 및 입력칸 채우기 완료`;
+            title.textContent = `${fmtLabel} 파싱 및 입력칸 채우기 완료`;
         } else {
-            title.textContent = '❌ cURL / Raw HTTP 가져오기 중단 (지원하지 않는 옵션 또는 형식)';
+            title.textContent = 'cURL / Raw HTTP 가져오기 중단 (지원하지 않는 옵션 또는 형식)';
         }
         box.appendChild(title);
 
@@ -106,7 +106,7 @@
             parseResult.warnings.forEach((w, idx) => {
                 if (idx > 0) warnSection.appendChild(document.createElement('br'));
                 const msg = typeof w === 'string' ? w : (w && w.message ? w.message : String(w));
-                warnSection.appendChild(document.createTextNode(`⚠️ ${msg}`));
+                warnSection.appendChild(document.createTextNode(`[경고] ${msg}`));
             });
             box.appendChild(warnSection);
         }
@@ -117,7 +117,7 @@
             parseResult.unsupported.forEach((u, idx) => {
                 if (idx > 0) unsupSection.appendChild(document.createElement('br'));
                 const msg = typeof u === 'string' ? u : (u && u.message ? u.message : String(u));
-                unsupSection.appendChild(document.createTextNode(`🚫 ${msg}`));
+                unsupSection.appendChild(document.createTextNode(`[미지원] ${msg}`));
             });
             box.appendChild(unsupSection);
         }
@@ -210,7 +210,7 @@
             const btnFill = document.createElement('button');
             btnFill.type = 'button';
             btnFill.className = 'btn-small btn-inline-sample';
-            btnFill.textContent = '🔑 예시 공개키 채우기';
+            btnFill.textContent = '예시 공개키 채우기';
             btnFill.addEventListener('click', () => {
                 const pkEl = document.getElementById('req-pubkey');
                 const samples = getSamplesObject();
@@ -218,7 +218,7 @@
                 if (pkEl && samplePubkey) {
                     pkEl.value = samplePubkey;
                     if (deps && typeof deps.showToast === 'function') {
-                        deps.showToast('🔑 예시 공개키가 입력칸에 채워졌습니다.');
+                        deps.showToast('예시 공개키가 입력칸에 채워졌습니다.');
                     }
                     if (deps && typeof deps.resetInspector === 'function') {
                         deps.resetInspector();
@@ -238,7 +238,7 @@
         const panel = document.getElementById('result-panel');
         if (panel && deps && typeof deps.setPlaceholder === 'function') {
             deps.setPlaceholder(panel, [
-                '📥 cURL / Raw HTTP 데이터가 입력칸에 반영되었습니다.',
+                'cURL / Raw HTTP 데이터가 입력칸에 반영되었습니다.',
                 PUBKEY_CLEARED_NOTICE,
                 TEXTAREA_LF_NOTICE,
                 "확인을 위해 '진단 시작' 버튼을 눌러주세요."
@@ -248,7 +248,7 @@
             deps.setOverheadVisible(false);
         }
         if (deps && typeof deps.showToast === 'function') {
-            deps.showToast('📥 입력값 적용 완료 (공개키 초기화됨, 예시 공개키 버튼으로 채울 수 있음)');
+            deps.showToast('입력값 적용 완료 (공개키 초기화됨, 예시 공개키 버튼으로 채울 수 있음)');
         }
     }
 

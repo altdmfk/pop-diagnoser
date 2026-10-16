@@ -87,7 +87,7 @@
                 const pkEl = document.getElementById('req-pubkey');
                 if (pkEl) {
                     pkEl.value = (DEMO_SAMPLES && DEMO_SAMPLES.public_key) || DEFAULT_FALLBACK_PUBKEY;
-                    showToast('🔑 예시 공개키가 입력칸에 채워졌습니다.');
+                    showToast('예시 공개키가 입력칸에 채워졌습니다.');
                     if (typeof resetInspector === 'function') resetInspector();
                 }
             });
@@ -95,12 +95,12 @@
 
         const loadDemo = (fixtureName, showFeedback = false) => {
             if (!DEMO_SAMPLES || !DEMO_SAMPLES.cases) {
-                showToast('⚠️ 데모 데이터를 불러오지 못했습니다. (samples.js 확인 필요)', true);
+                showToast('데모 데이터를 불러오지 못했습니다. (samples.js 확인 필요)', true);
                 return;
             }
             const fixture = DEMO_SAMPLES.cases.find(c => c.name === fixtureName);
             if (!fixture) {
-                showToast('⚠️ 해당 데모 케이스를 찾을 수 없습니다.', true);
+                showToast('해당 데모 케이스를 찾을 수 없습니다.', true);
                 return;
             }
 
@@ -128,7 +128,7 @@
             if (typeof resetInspector === 'function') resetInspector();
 
             if (showFeedback) {
-                showToast('✅ 선택하신 예시 데이터가 모든 탭에 자동 입력되었습니다.');
+                showToast('선택하신 예시 데이터가 모든 탭에 자동 입력되었습니다.');
                 const panel = document.getElementById('result-panel');
                 setPlaceholder(panel, [
                     '예시 데이터가 갱신되었습니다.',
@@ -206,7 +206,7 @@
                     document.getElementById('req-method').value = inputs.method;
 
                     if (typeof resetInspector === 'function') resetInspector();
-                    showToast('✨ 새로운 서명이 생성되어 적용되었습니다!');
+                    showToast('새로운 서명이 생성되어 적용되었습니다.');
                     renderGenerateSuccess(panel, gen);
                     setOverheadVisible(false);
                 } catch (e) {

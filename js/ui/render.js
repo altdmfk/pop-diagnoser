@@ -75,7 +75,6 @@
     function renderWarningsBox(warnings) {
         const wDiv = document.createElement('div');
         wDiv.className = 'alert info';
-        wDiv.appendChild(document.createTextNode('💡 '));
         const strong = document.createElement('strong');
         strong.textContent = '진단기 자동 교정 안내:';
         wDiv.appendChild(strong);
@@ -110,7 +109,6 @@
         if (!errObj) return;
         if (errObj.hint) {
             container.appendChild(document.createElement('br'));
-            container.appendChild(document.createTextNode('💡 '));
             const hintStrong = document.createElement('strong');
             hintStrong.textContent = '힌트:';
             container.appendChild(hintStrong);
@@ -136,7 +134,7 @@
         if (detailText) {
             const detailBox = document.createElement('div');
             detailBox.className = 'error-detail-box';
-            detailBox.textContent = `📌 에러 상세:\n${detailText}`;
+            detailBox.textContent = `에러 상세:\n${detailText}`;
             container.appendChild(detailBox);
         }
     }
@@ -155,7 +153,7 @@
         if (error.code === 'ERR_INVALID_PUBKEY' || error.code === 'ERR_INVALID_SIGNATURE_ENCODING') {
             const inspectorHint = document.createElement('div');
             inspectorHint.className = 'inspector-guide-hint';
-            inspectorHint.textContent = "🔍 인스펙터 안내: 아래 '🔍 서명 · 공개키 구조 인스펙터' 패널을 열어 서명(인코딩·바이트 길이·DER/Raw 형식) 및 공개키(알고리즘·곡선·좌표) 상세 구조를 확인해 보세요.";
+            inspectorHint.textContent = "인스펙터 안내: 아래 '서명 · 공개키 구조 인스펙터' 패널을 열어 서명(인코딩·바이트 길이·DER/Raw 형식) 및 공개키(알고리즘·곡선·좌표) 상세 구조를 확인해 보세요.";
             errDiv.appendChild(inspectorHint);
         }
         return errDiv;
@@ -170,8 +168,9 @@
             li.className = 'stage-item';
 
             const iconDiv = document.createElement('div');
-            iconDiv.className = 'status-icon';
-            iconDiv.textContent = s.status === 'pass' ? '✅' : s.status === 'unknown' ? '❓' : '❌';
+            const statusCls = s.status === 'pass' ? 'status-pass' : s.status === 'unknown' ? 'status-unknown' : 'status-fail';
+            iconDiv.className = `status-icon status-tag ${statusCls}`;
+            iconDiv.textContent = s.status === 'pass' ? '정상' : s.status === 'unknown' ? '안내' : '실패';
 
             const contentDiv = document.createElement('div');
             contentDiv.className = 'content';
@@ -193,7 +192,7 @@
                 if (s.status === 'fail' && s.code === 'STAGE4_INVALID_SIG_LENGTH') {
                     const inspectorHint = document.createElement('div');
                     inspectorHint.className = 'inspector-guide-hint';
-                    inspectorHint.textContent = "🔍 인스펙터 안내: 아래 '🔍 서명 · 공개키 구조 인스펙터' 패널을 열어 서명의 인코딩, 바이트 길이, DER/Raw 형식을 확인해 보세요.";
+                    inspectorHint.textContent = "인스펙터 안내: 아래 '서명 · 공개키 구조 인스펙터' 패널을 열어 서명의 인코딩, 바이트 길이, DER/Raw 형식을 확인해 보세요.";
                     contentDiv.appendChild(inspectorHint);
                 }
             }
@@ -289,7 +288,7 @@
             const matchBox = document.createElement('div');
             matchBox.className = 'canonical-match-notice';
             const strongNotice = document.createElement('strong');
-            strongNotice.textContent = '💡 서명 대상 문자열(Canonical String)은 게이트웨이 기준과 완전히 일치합니다.';
+            strongNotice.textContent = '서명 대상 문자열(Canonical String)은 게이트웨이 기준과 완전히 일치합니다.';
             matchBox.appendChild(strongNotice);
             matchBox.appendChild(document.createElement('br'));
             const detailText = (hasBodyTarget && !hasSignatureTarget)
@@ -311,7 +310,7 @@
             guideBox.className = 'hypothesis-guide-box';
             const guideTitle = document.createElement('strong');
             guideTitle.className = 'guide-title';
-            guideTitle.textContent = '🛠️ 어떻게 수정해야 하나요? (해결 가이드)';
+            guideTitle.textContent = '어떻게 수정해야 하나요? (해결 가이드)';
             guideBox.appendChild(guideTitle);
 
             const guideList = document.createElement('ul');
@@ -359,7 +358,7 @@
         p.appendChild(document.createElement('br'));
         p.appendChild(document.createElement('br'));
         const b = document.createElement('b');
-        b.textContent = '💡 예상되는 원인:';
+        b.textContent = '예상되는 원인:';
         p.appendChild(b);
         p.appendChild(document.createElement('br'));
         appendMultilineText(
@@ -495,7 +494,7 @@
             warnDiv.className = 'alert warning alert-compact';
             const warnTitle = document.createElement('strong');
             warnTitle.className = 'alert-title';
-            warnTitle.textContent = '⚠️ JSON 본문 문법 확인 안내 (서명은 정상 생성됨)';
+            warnTitle.textContent = '[확인] JSON 본문 문법 확인 안내 (서명은 정상 생성됨)';
             warnDiv.appendChild(warnTitle);
             appendMultilineText(warnDiv, genResult.warning.message || String(genResult.warning));
             appendErrorHintAndDetail(warnDiv, genResult.warning);
@@ -517,7 +516,7 @@
         errDiv.className = 'alert warning alert-compact';
         const strongTitle = document.createElement('strong');
         strongTitle.className = 'alert-title';
-        strongTitle.textContent = '❌ 서명 생성 실패';
+        strongTitle.textContent = '[오류] 서명 생성 실패';
         errDiv.appendChild(strongTitle);
         appendMultilineText(errDiv, err && err.message ? err.message : String(err));
         appendErrorHintAndDetail(errDiv, err);
