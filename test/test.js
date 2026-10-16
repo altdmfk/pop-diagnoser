@@ -740,6 +740,120 @@ async function runTests() {
             }
         }
 
+        // 6-1) Slot storage default label derivation & path extraction
+        {
+            const { extractSlotPath, deriveDefaultLabel } = PopUI;
+            const postTx = deriveDefaultLabel({ method: 'POST', urlStr: 'https://api.example.com/v1/tx?a=1' });
+            const getNoUrl = deriveDefaultLabel({ method: 'GET', urlStr: '' });
+            const noMethod = deriveDefaultLabel({ method: '', urlStr: 'https://api.example.com/items' });
+            const emptyAll = deriveDefaultLabel({ method: '', urlStr: '' });
+            const path1 = extractSlotPath('https://api.example.com/v1/orders/123?filter=all#hash');
+            const pathEmpty = extractSlotPath('');
+
+            if (
+                postTx === 'POST /v1/tx' &&
+                getNoUrl === 'GET (URL 없음)' &&
+                noMethod === '/items' &&
+                emptyAll === '(URL 없음)' &&
+                path1 === '/v1/orders/123' &&
+                pathEmpty === '(URL 없음)'
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] slot-storage-default-label: Failed default label derivation or path extraction");
+                failed++;
+            }
+        }
+
+        // 6-2) Slot custom label persistence & backward compatibility
+        {
+            const { readMemorySlots, writeMemorySlots, deriveDefaultLabel, formatSavedTime, formatSlotPreview } = PopUI;
+            const mockStorage = {
+                store: {},
+                getItem(k) { return Object.prototype.hasOwnProperty.call(this.store, k) ? this.store[k] : null; },
+                setItem(k, v) { this.store[k] = String(v); }
+            };
+
+            // Custom label persistence
+            const customData = {
+                slot_1: {
+                    label: '사용자 지정 결제 건',
+                    method: 'POST',
+                    urlStr: 'https://api.example.com/v1/tx',
+                    signature: 'MEQCICtestSig1234567890'
+                }
+            };
+            const writeRes = writeMemorySlots(customData, mockStorage);
+            const readRes = readMemorySlots(mockStorage);
+
+            // Old-format slot backward compatibility (no label, no savedAt, only legacy time)
+            const oldFormatSlot = {
+                time: '12:34:56',
+                method: 'POST',
+                urlStr: 'https://api.example.com/legacy',
+                bodyStr: '{"foo":"bar"}'
+            };
+            const oldDerivedLabel = deriveDefaultLabel(oldFormatSlot);
+            const oldFormattedTime = formatSavedTime(oldFormatSlot.savedAt, oldFormatSlot.time);
+            const oldPreview = formatSlotPreview(oldFormatSlot);
+
+            if (
+                writeRes.ok === true &&
+                readRes.ok === true &&
+                readRes.data.slot_1.label === '사용자 지정 결제 건' &&
+                oldDerivedLabel === 'POST /legacy' &&
+                oldFormattedTime === '12:34:56' &&
+                oldPreview.includes('URL: https://api.example.com/legacy') &&
+                oldPreview.includes('{"foo":"bar"}')
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] slot-storage-custom-label-and-compat: Custom label persistence or old-format compatibility failed");
+                failed++;
+            }
+        }
+
+        // 6-3) Slot body UTF-8 byte length (including multi-byte Korean) & signature flag
+        {
+            const { getUtf8ByteLength, formatSlotPreview } = PopUI;
+            const asciiLen = getUtf8ByteLength('{"status":"ok"}');
+            const koreanLen = getUtf8ByteLength('{"msg":"결제 완료"}');
+            const emptyLen = getUtf8ByteLength('');
+            const nullLen = getUtf8ByteLength(null);
+            const emojiLen = getUtf8ByteLength('{"emoji":"😀"}');
+
+            // Signature flag check
+            const sigPresent = Boolean('MEQCIC4h9v...'.trim().length > 0);
+            const sigEmpty = Boolean(''.trim().length > 0);
+            const sigWhitespace = Boolean('   '.trim().length > 0);
+
+            // Preview truncation check
+            const longBody = 'A'.repeat(200);
+            const previewLong = formatSlotPreview({
+                urlStr: 'https://example.com/test',
+                bodyStr: longBody,
+                signature: '12345678901234567890'
+            });
+
+            if (
+                asciiLen === 15 &&
+                koreanLen === 23 &&
+                emptyLen === 0 &&
+                nullLen === 0 &&
+                emojiLen === 16 &&
+                sigPresent === true &&
+                sigEmpty === false &&
+                sigWhitespace === false &&
+                previewLong.includes('…') &&
+                previewLong.includes('1234567890123456…')
+            ) {
+                passed++;
+            } else {
+                console.log("[FAIL] slot-storage-body-bytes-and-sig: UTF-8 byte length, signature flag or preview truncation failed");
+                failed++;
+            }
+        }
+
         // 7) Profile parameter injection check (diagnose(inputs, profile))
         const strictTimeProfile = Object.assign({}, PopCore.PaperProfile, {
             timestampToleranceSec: 5
