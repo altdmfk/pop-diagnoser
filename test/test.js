@@ -17,6 +17,150 @@ const PopUI = (typeof window !== 'undefined' && window.PopUI)
         require('../js/ui/importer.js')
     );
 
+function createMockElement(tagName, options = {}) {
+    const isTextarea = Boolean(options.isTextarea || String(tagName).toUpperCase() === 'TEXTAREA');
+    const el = {
+        tagName: String(tagName ?? 'DIV'),
+        id: '',
+        className: '',
+        disabled: false,
+        dataset: {},
+        attributes: {},
+        children: [],
+        listeners: {},
+        _val: '',
+        _text: '',
+        _htmlTrapTriggered: false,
+        classList: {
+            add() {},
+            remove() {},
+            contains(cls) {
+                return String(el.className || '').split(/\s+/).includes(cls);
+            },
+            toggle() {}
+        },
+        setAttribute(name, val) {
+            this.attributes[name] = String(val);
+        },
+        getAttribute(name) {
+            return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+        },
+        remove() {},
+        addEventListener(ev, fn) {
+            this.listeners[ev] = fn;
+        },
+        get textContent() {
+            const childText = this.children
+                .map(c => (c && c.textContent !== undefined ? c.textContent : (c && c.text !== undefined ? c.text : '')))
+                .join('');
+            return this._text + childText;
+        },
+        set textContent(val) {
+            this._text = String(val ?? '');
+            this.children = [];
+        },
+        set innerHTML(_val) {
+            this._htmlTrapTriggered = true;
+            const trap = options.onHtmlTrap || options.onInnerHtml;
+            if (typeof trap === 'function') {
+                trap('innerHTML', _val);
+            }
+        },
+        set outerHTML(_val) {
+            this._htmlTrapTriggered = true;
+            const trap = options.onHtmlTrap || options.onInnerHtml;
+            if (typeof trap === 'function') {
+                trap('outerHTML', _val);
+            }
+        },
+        appendChild(child) {
+            this.children.push(child);
+            return child;
+        },
+        insertBefore(child, refNode) {
+            const idx = this.children.indexOf(refNode);
+            if (idx === -1) this.children.unshift(child);
+            else this.children.splice(idx, 0, child);
+            return child;
+        },
+        querySelectorAll(selector) {
+            const selectors = String(selector || '').split(',').map(s => s.trim()).filter(Boolean);
+            const matches = [];
+            const visit = (node) => {
+                for (const ch of (node.children || [])) {
+                    const matched = selectors.some(sel => {
+                        if (sel.startsWith('.')) {
+                            return String(ch.className || '').split(/\s+/).includes(sel.slice(1));
+                        }
+                        if (sel.startsWith('#')) {
+                            return ch.id === sel.slice(1);
+                        }
+                        return String(ch.tagName || '').toUpperCase() === sel.toUpperCase();
+                    });
+                    if (matched) matches.push(ch);
+                    visit(ch);
+                }
+            };
+            visit(this);
+            return matches;
+        },
+        querySelector(selector) {
+            const all = this.querySelectorAll(selector);
+            return all.length > 0 ? all[0] : null;
+        }
+    };
+
+    if (isTextarea) {
+        Object.defineProperty(el, 'value', {
+            get() { return this._val; },
+            set(v) { this._val = String(v ?? '').replace(/\r\n/g, '\n'); }
+        });
+    } else {
+        el.value = '';
+    }
+
+    return el;
+}
+
+function createMockDocument(options = {}) {
+    const elMap = options.elements || {};
+    const elemOptions = { onHtmlTrap: options.onHtmlTrap || options.onInnerHtml };
+    const docListeners = options.listeners || {};
+    const autoCreate = Boolean(options.autoCreateById || options.autoCreateElements);
+    const defaultTag = options.defaultByIdTag || options.defaultTag || 'INPUT';
+    return {
+        body: createMockElement('BODY', elemOptions),
+        listeners: docListeners,
+        addEventListener(ev, fn) {
+            docListeners[ev] = fn;
+        },
+        getElementById(id) {
+            if (Object.prototype.hasOwnProperty.call(elMap, id)) {
+                return elMap[id];
+            }
+            if (autoCreate) {
+                elMap[id] = createMockElement(defaultTag, elemOptions);
+                return elMap[id];
+            }
+            return null;
+        },
+        createElement(tag) {
+            return createMockElement(String(tag).toUpperCase(), elemOptions);
+        },
+        createTextNode(text) {
+            const node = createMockElement('#text', elemOptions);
+            node._text = String(text ?? '');
+            return node;
+        },
+        querySelectorAll(selector) {
+            return this.body.querySelectorAll(selector);
+        },
+        querySelector(selector) {
+            return this.body.querySelector(selector);
+        }
+    };
+}
+
 async function runTests() {
     const pubkeyPem = fixtures.public_key;
     let passed = 0;
@@ -504,56 +648,15 @@ async function runTests() {
 
         // 5) UI renderResult & renderGenerateSuccess DOM verification: 0 innerHTML assignments, payloads exist strictly in textContent
         let innerHtmlUsed = false;
-        function createMockNode(tagName) {
-            return {
-                tagName,
-                className: '',
-                classList: {
-                    remove() {},
-                    add() {}
-                },
-                children: [],
-                _text: '',
-                get textContent() {
-                    const childText = this.children.map(c => c.textContent).join('');
-                    return this._text + childText;
-                },
-                set textContent(val) {
-                    this._text = String(val ?? '');
-                    this.children = [];
-                },
-                set innerHTML(_val) {
-                    innerHtmlUsed = true;
-                },
-                appendChild(child) {
-                    this.children.push(child);
-                    return child;
-                },
-                insertBefore(child, refNode) {
-                    const idx = this.children.indexOf(refNode);
-                    if (idx === -1) this.children.unshift(child);
-                    else this.children.splice(idx, 0, child);
-                    return child;
-                }
-            };
-        }
+        const markHtmlTrap = () => { innerHtmlUsed = true; };
 
         if (typeof window === 'undefined') {
-            const mockPanel = createMockNode('div');
+            const mockPanel = createMockElement('DIV', { onHtmlTrap: markHtmlTrap });
             const prevDoc = global.document;
-            global.document = {
-                getElementById(id) {
-                    return id === 'result-panel' ? mockPanel : null;
-                },
-                createElement(tag) {
-                    return createMockNode(tag.toUpperCase());
-                },
-                createTextNode(text) {
-                    const node = createMockNode('#text');
-                    node._text = String(text ?? '');
-                    return node;
-                }
-            };
+            global.document = createMockDocument({
+                elements: { 'result-panel': mockPanel },
+                onHtmlTrap: markHtmlTrap
+            });
 
             try {
                 renderResult(xssBodyRes);
@@ -962,45 +1065,15 @@ async function runTests() {
             const xssPubReport = await inspectPublicKey('<img src=x onerror=alert(1)>');
 
             let inspectorInnerHtmlUsed = false;
-            function createInspectorMockNode(tagName) {
-                return {
-                    tagName,
-                    className: '',
-                    children: [],
-                    _text: '',
-                    get textContent() {
-                        return this._text + this.children.map(c => c.textContent).join('');
-                    },
-                    set textContent(val) {
-                        this._text = String(val ?? '');
-                        this.children = [];
-                    },
-                    set innerHTML(_val) {
-                        inspectorInnerHtmlUsed = true;
-                    },
-                    appendChild(child) {
-                        this.children.push(child);
-                        return child;
-                    }
-                };
-            }
+            const markInspectorHtmlTrap = () => { inspectorInnerHtmlUsed = true; };
 
             let uiSafe = false;
             if (typeof window === 'undefined') {
                 const prevDoc = global.document;
-                global.document = {
-                    createElement(tag) {
-                        return createInspectorMockNode(tag.toUpperCase());
-                    },
-                    createTextNode(text) {
-                        const n = createInspectorMockNode('#text');
-                        n._text = String(text ?? '');
-                        return n;
-                    }
-                };
+                global.document = createMockDocument({ onHtmlTrap: markInspectorHtmlTrap });
                 try {
-                    const sigBox = createInspectorMockNode('DIV');
-                    const pubBox = createInspectorMockNode('DIV');
+                    const sigBox = createMockElement('DIV', { onHtmlTrap: markInspectorHtmlTrap });
+                    const pubBox = createMockElement('DIV', { onHtmlTrap: markInspectorHtmlTrap });
                     PopUI.renderSignatureInspect(sigBox, xssSigReport);
                     PopUI.renderPublicKeyInspect(pubBox, xssPubReport);
                     uiSafe = !inspectorInnerHtmlUsed &&
@@ -1317,48 +1390,14 @@ async function runTests() {
             const xssParsed = parseCurl(xssCurl);
 
             let importerInnerHtmlUsed = false;
-            function createImporterMockNode(tagName) {
-                return {
-                    tagName,
-                    className: '',
-                    classList: {
-                        remove() {},
-                        add() {}
-                    },
-                    children: [],
-                    _text: '',
-                    get textContent() {
-                        return this._text + this.children.map(c => c.textContent).join('');
-                    },
-                    set textContent(val) {
-                        this._text = String(val ?? '');
-                        this.children = [];
-                    },
-                    set innerHTML(_val) {
-                        importerInnerHtmlUsed = true;
-                    },
-                    appendChild(child) {
-                        this.children.push(child);
-                        return child;
-                    }
-                };
-            }
+            const markImporterHtmlTrap = () => { importerInnerHtmlUsed = true; };
 
             let importerUiSafe = false;
             if (typeof window === 'undefined') {
                 const prevDoc = global.document;
-                global.document = {
-                    createElement(tag) {
-                        return createImporterMockNode(tag.toUpperCase());
-                    },
-                    createTextNode(text) {
-                        const n = createImporterMockNode('#text');
-                        n._text = String(text ?? '');
-                        return n;
-                    }
-                };
+                global.document = createMockDocument({ onHtmlTrap: markImporterHtmlTrap });
                 try {
-                    const banner = createImporterMockNode('DIV');
+                    const banner = createMockElement('DIV', { onHtmlTrap: markImporterHtmlTrap });
                     PopUI.renderImportStatus(banner, xssParsed);
                     importerUiSafe = !importerInnerHtmlUsed &&
                         banner.children.some(c => c.className === 'import-report import-report-ok');
@@ -1593,17 +1632,9 @@ async function runTests() {
             const jsonWarn = mismatchRes.warnings && mismatchRes.warnings.find(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
             let renderedHasHint = false;
             if (typeof window === 'undefined') {
-                const mockPanel = createMockNode('div');
+                const mockPanel = createMockElement('div');
                 const prevDoc = global.document;
-                global.document = {
-                    getElementById(id) { return id === 'result-panel' ? mockPanel : null; },
-                    createElement(tag) { return createMockNode(tag.toUpperCase()); },
-                    createTextNode(text) {
-                        const node = createMockNode('#text');
-                        node._text = String(text ?? '');
-                        return node;
-                    }
-                };
+                global.document = createMockDocument({ elements: { 'result-panel': mockPanel } });
                 try {
                     renderResult(mismatchRes);
                     const renderedText = mockPanel.textContent;
@@ -2229,17 +2260,9 @@ async function runTests() {
 
             let renderedReducedMsg = false;
             if (typeof window === 'undefined') {
-                const mockPanel = createMockNode('div');
+                const mockPanel = createMockElement('div');
                 const prevDoc = global.document;
-                global.document = {
-                    getElementById(id) { return id === 'result-panel' ? mockPanel : null; },
-                    createElement(tag) { return createMockNode(tag.toUpperCase()); },
-                    createTextNode(text) {
-                        const node = createMockNode('#text');
-                        node._text = String(text ?? '');
-                        return node;
-                    }
-                };
+                global.document = createMockDocument({ elements: { 'result-panel': mockPanel } });
                 try {
                     renderResult(cappedRes);
                     renderedReducedMsg = mockPanel.textContent.includes('탐색 범위를 줄였음 (최대 탐색 상한 도달)');
@@ -2581,11 +2604,7 @@ async function runTests() {
             });
 
             // (d) Browser <textarea> LF normalization simulation + CRLF preservation via setRawTextareaValue/readRequestBody & UI notice
-            const mockTextarea = {
-                _normalizedVal: '',
-                get value() { return this._normalizedVal; },
-                set value(v) { this._normalizedVal = String(v ?? '').replace(/\r\n/g, '\n'); }
-            };
+            const mockTextarea = createMockElement('TEXTAREA', { isTextarea: true });
             PopUI.setRawTextareaValue(mockTextarea, crlfBody);
             const normalizedDomVal = mockTextarea.value;
             const preservedCrlfRead = PopUI.readRequestBody(mockTextarea);
@@ -2601,22 +2620,9 @@ async function runTests() {
             );
             if (typeof window === 'undefined') {
                 const prevDoc = global.document;
-                const createSimpleNode = (tag) => ({
-                    tagName: tag,
-                    className: '',
-                    classList: { remove() {}, add() {} },
-                    children: [],
-                    _text: '',
-                    get textContent() { return this._text + this.children.map(c => c.textContent).join(''); },
-                    set textContent(v) { this._text = String(v ?? ''); this.children = []; },
-                    appendChild(ch) { this.children.push(ch); return ch; }
-                });
-                global.document = {
-                    createElement: (t) => createSimpleNode(t.toUpperCase()),
-                    createTextNode: (txt) => { const n = createSimpleNode('#text'); n._text = String(txt ?? ''); return n; }
-                };
+                global.document = createMockDocument();
                 try {
-                    const bannerNode = createSimpleNode('DIV');
+                    const bannerNode = createMockElement('DIV');
                     PopUI.renderImportStatus(bannerNode, parsedAnsiCrlf);
                     hasLfNotice =
                         parsedAnsiCrlf.inputs.bodyStr === '{\r\n  "amount": 1000\r\n}' &&
@@ -2766,30 +2772,16 @@ async function runTests() {
                         getItem() { return JSON.stringify({ slot_1: { time: '12:00:00', method: 'POST' } }); },
                         setItem() {}
                     };
-                    const makeEl = (tag) => ({
-                        tagName: tag,
-                        className: '',
-                        value: '',
-                        children: [],
-                        listeners: {},
-                        classList: { add() {}, remove() {} },
-                        setAttribute() {},
-                        remove() {},
-                        addEventListener(ev, fn) { this.listeners[ev] = fn; },
-                        appendChild(ch) { this.children.push(ch); return ch; }
-                    });
-                    const containerEl = makeEl('DIV');
-                    const panelEl = makeEl('DIV');
-                    global.document = {
-                        body: makeEl('BODY'),
-                        getElementById(id) {
-                            if (id === 'memory-slots-container') return containerEl;
-                            if (id === 'result-panel') return panelEl;
-                            return makeEl('INPUT');
+                    const containerEl = createMockElement('DIV');
+                    const panelEl = createMockElement('DIV');
+                    global.document = createMockDocument({
+                        elements: {
+                            'memory-slots-container': containerEl,
+                            'result-panel': panelEl
                         },
-                        createElement(tag) { return makeEl(tag.toUpperCase()); },
-                        createTextNode(txt) { const n = makeEl('#text'); n.textContent = txt; return n; }
-                    };
+                        autoCreateElements: true,
+                        defaultTag: 'INPUT'
+                    });
                     PopUI.initMemorySlots();
                     const firstSlotDiv = containerEl.children[0];
                     const loadBtn = firstSlotDiv && firstSlotDiv.children.find(b => b.className.includes('btn-slot-load'));
@@ -2830,28 +2822,7 @@ async function runTests() {
             const mLowerHyp = PopCore.HYPOTHESES.find(h => h.id === 'method-lowercase');
 
             let renderSpyInnerHtmlUsed = false;
-            const makeDomNode = (tag) => ({
-                tagName: tag,
-                className: '',
-                children: [],
-                _text: '',
-                classList: { add() {}, remove() {} },
-                setAttribute() {},
-                get textContent() {
-                    return this._text + this.children.map(c => c.textContent).join('');
-                },
-                set textContent(val) {
-                    this._text = String(val ?? '');
-                    this.children = [];
-                },
-                set innerHTML(_val) {
-                    renderSpyInnerHtmlUsed = true;
-                },
-                appendChild(child) {
-                    this.children.push(child);
-                    return child;
-                }
-            });
+            const onInnerHtmlSpy = () => { renderSpyInnerHtmlUsed = true; };
 
             const findNodesByClass = (root, cls) => {
                 let out = [];
@@ -2868,17 +2839,12 @@ async function runTests() {
             let prevDoc;
             let createdBrowserPanel = false;
             if (typeof window === 'undefined') {
-                mockPanel = makeDomNode('DIV');
+                mockPanel = createMockElement('DIV', { onInnerHtml: onInnerHtmlSpy });
                 prevDoc = global.document;
-                global.document = {
-                    getElementById(id) { return id === 'result-panel' ? mockPanel : null; },
-                    createElement(tag) { return makeDomNode(tag.toUpperCase()); },
-                    createTextNode(text) {
-                        const n = makeDomNode('#text');
-                        n._text = String(text ?? '');
-                        return n;
-                    }
-                };
+                global.document = createMockDocument({
+                    elements: { 'result-panel': mockPanel },
+                    onInnerHtml: onInnerHtmlSpy
+                });
             } else {
                 mockPanel = document.getElementById('result-panel');
                 if (!mockPanel) {
@@ -3126,32 +3092,6 @@ async function runTests() {
             let slotsCrlfOk = false;
             const crlfSample = '{\r\n  "x": 1\r\n}';
             const lfSample = '{\n  "x": 1\n}';
-            const makeSlotMockEl = (tag, isTextarea) => {
-                const el = {
-                    tagName: tag,
-                    className: '',
-                    _val: '',
-                    _text: '',
-                    children: [],
-                    listeners: {},
-                    classList: { add() {}, remove() {} },
-                    setAttribute() {},
-                    remove() {},
-                    get textContent() { return this._text + this.children.map(c => c.textContent || '').join(''); },
-                    set textContent(v) { this._text = String(v ?? ''); this.children = []; },
-                    addEventListener(ev, fn) { this.listeners[ev] = fn; },
-                    appendChild(ch) { this.children.push(ch); return ch; }
-                };
-                if (isTextarea) {
-                    Object.defineProperty(el, 'value', {
-                        get() { return this._val; },
-                        set(v) { this._val = String(v ?? '').replace(/\r\n/g, '\n'); }
-                    });
-                } else {
-                    el.value = '';
-                }
-                return el;
-            };
 
             const storageMap = {};
             const mockStorage = {
@@ -3171,19 +3111,15 @@ async function runTests() {
                     inspectorMod.resetInspector = () => {};
                     global.localStorage = mockStorage;
                     const elMap = {
-                        'memory-slots-container': makeSlotMockEl('DIV', false),
-                        'result-panel': makeSlotMockEl('DIV', false),
-                        'req-body': makeSlotMockEl('TEXTAREA', true)
+                        'memory-slots-container': createMockElement('DIV'),
+                        'result-panel': createMockElement('DIV'),
+                        'req-body': createMockElement('TEXTAREA', { isTextarea: true })
                     };
-                    global.document = {
-                        body: makeSlotMockEl('BODY', false),
-                        getElementById(id) {
-                            if (!elMap[id]) elMap[id] = makeSlotMockEl('INPUT', false);
-                            return elMap[id];
-                        },
-                        createElement(tag) { return makeSlotMockEl(tag.toUpperCase(), false); },
-                        createTextNode(txt) { const n = makeSlotMockEl('#text', false); n.textContent = txt; return n; }
-                    };
+                    global.document = createMockDocument({
+                        elements: elMap,
+                        autoCreateElements: true,
+                        defaultTag: 'INPUT'
+                    });
 
                     // Set CRLF body in req-body and save to slot_1
                     PopUI.setRawTextareaValue(elMap['req-body'], crlfSample);
@@ -3219,7 +3155,7 @@ async function runTests() {
                     global.localStorage = prevStorage;
                 }
             } else {
-                const reqBodyEl = document.getElementById('req-body') || makeSlotMockEl('TEXTAREA', true);
+                const reqBodyEl = document.getElementById('req-body') || createMockElement('TEXTAREA', { isTextarea: true });
                 PopUI.setRawTextareaValue(reqBodyEl, crlfSample);
                 const readCrlf = PopUI.readRequestBody(reqBodyEl);
                 PopUI.setRawTextareaValue(reqBodyEl, lfSample);
@@ -3235,7 +3171,7 @@ async function runTests() {
             }
         }
 
-        // 42) Browser global load order & PopCore public symbol preservation (STAGE_IDS, buildString, verifySig, etc.)
+        // 42) Browser global load order & PopCore public symbol preservation (STAGE_IDS, buildString, verifySig, UMD symmetry, etc.)
         {
             const expectedSymbols = [
                 'STAGE_IDS',
@@ -3246,16 +3182,30 @@ async function runTests() {
                 'derToRaw',
                 'importPublicKey',
                 'extractPublicKeySpkiBytes',
+                'containsPrivateKeyMarker',
                 'parseDerSignature',
                 'detectAndDecodeSignature',
                 'inspectSignature',
                 'inspectPublicKey',
+                'inspectDerStructure',
+                'isPointOnP256Curve',
+                'P256_P',
+                'P256_A',
+                'P256_B',
+                'P256_N',
+                'P256_HALF_N',
+                'OID_EC_PUBLIC_KEY',
+                'OID_RSA_ENCRYPTION',
+                'OID_P256',
                 'parseCurl',
                 'parseRawHttp',
+                'MAX_INPUT_LENGTH',
+                'createEmptyInputs',
                 'HYPOTHESES',
                 'JSON_HINT_CODES',
                 'detectJsonErrorHint',
                 'extractJsonErrorLocation',
+                'looksLikeJson',
                 'diagnose',
                 'validateJsonBody',
                 'generateTestSignature',
@@ -3279,6 +3229,7 @@ async function runTests() {
                 forbiddenInternalSymbols.every(sym => PopCore[sym] === undefined);
 
             let browserVmOk = true;
+            let exactKeySymmetryOk = true;
             if (typeof window === 'undefined') {
                 const fs = require('fs');
                 const path = require('path');
@@ -3332,16 +3283,21 @@ async function runTests() {
                     vm.runInContext(code, ctx, { filename: relPath });
                 }
 
+                exactKeySymmetryOk =
+                    Boolean(ctx.PopCore) &&
+                    Object.keys(ctx.PopCore).sort().join(',') === Object.keys(PopCore).sort().join(',');
+
                 browserVmOk =
                     Boolean(ctx.PopCore) &&
                     expectedSymbols.every(sym => ctx.PopCore[sym] !== undefined) &&
-                    forbiddenInternalSymbols.every(sym => ctx.PopCore[sym] === undefined);
+                    forbiddenInternalSymbols.every(sym => ctx.PopCore[sym] === undefined) &&
+                    exactKeySymmetryOk;
             }
 
-            if (directPopCoreOk && browserVmOk) {
+            if (directPopCoreOk && browserVmOk && exactKeySymmetryOk) {
                 passed++;
             } else {
-                console.log(`[FAIL] popcore-global-symbols-preservation: directPopCoreOk=${directPopCoreOk}, browserVmOk=${browserVmOk}`);
+                console.log(`[FAIL] popcore-global-symbols-preservation: directPopCoreOk=${directPopCoreOk}, browserVmOk=${browserVmOk}, exactKeySymmetryOk=${exactKeySymmetryOk}`);
                 failed++;
             }
         }
@@ -3771,6 +3727,669 @@ async function runTests() {
                 passed++;
             } else {
                 console.log(`[FAIL] bfs-dedupe-and-stage5-cap: s5CapOk=${s5CapOk}, sameDepthDedupeOk=${sameDepthDedupeOk}`);
+                failed++;
+            }
+        }
+
+        // 47) Slot contentType isolation, body metadata encapsulation, and button async concurrency guard
+        {
+            let helpersOk = false;
+            let slotIsolationOk = false;
+            let buttonConcurrencyOk = false;
+
+            // (a) Body state helpers in PopUI
+            try {
+                const mockEl = { value: '', _rawBody: '', _contentType: '' };
+                PopUI.setRawTextareaValue(mockEl, '{"test":123}', 'application/json');
+                const readVal = PopUI.readRequestBody(mockEl);
+                const readCt = PopUI.readRequestContentType(mockEl);
+
+                PopUI.setRawTextareaValue(mockEl, 'plain text', '');
+                const readEmptyCt = PopUI.readRequestContentType(mockEl);
+                const hasNoProp = !Object.prototype.hasOwnProperty.call(mockEl, '_contentType');
+
+                if (
+                    readVal === '{"test":123}' &&
+                    readCt === 'application/json' &&
+                    readEmptyCt === '' &&
+                    hasNoProp
+                ) {
+                    helpersOk = true;
+                }
+            } catch (e) {
+                console.log("Error in helpersOk:", e);
+            }
+
+            // (b) Slot contentType persistence and isolation across slots
+            try {
+                const storageMap = {};
+                const mockStorage = {
+                    getItem(k) { return Object.prototype.hasOwnProperty.call(storageMap, k) ? storageMap[k] : null; },
+                    setItem(k, v) { storageMap[k] = String(v); }
+                };
+
+                const prevDoc = global.document;
+                const prevStorage = global.localStorage;
+                try {
+                    global.localStorage = mockStorage;
+                    const elMap = {
+                        'memory-slots-container': createMockElement('DIV'),
+                        'result-panel': createMockElement('DIV'),
+                        'req-body': createMockElement('TEXTAREA', { isTextarea: true })
+                    };
+                    global.document = createMockDocument({
+                        elements: elMap,
+                        autoCreateElements: true,
+                        defaultTag: 'INPUT'
+                    });
+
+                    PopUI.initMemorySlots();
+
+                    // Save slot 1 with text/plain
+                    PopUI.setRawTextareaValue(elMap['req-body'], 'plain text', 'text/plain');
+                    let slot1Div = elMap['memory-slots-container'].children[0];
+                    let saveBtn1 = slot1Div.children.find(b => b.className.includes('btn-slot-save'));
+                    saveBtn1.listeners.click();
+
+                    // Save slot 2 with broken JSON without content-type
+                    const brokenJsonStr = '{\n  "amount": 1000';
+                    PopUI.setRawTextareaValue(elMap['req-body'], brokenJsonStr, '');
+                    let slot2Div = elMap['memory-slots-container'].children[1];
+                    let saveBtn2 = slot2Div.children.find(b => b.className.includes('btn-slot-save'));
+                    saveBtn2.listeners.click();
+
+                    // Load slot 1 -> should have text/plain (re-query slot1Div because DOM was re-rendered)
+                    slot1Div = elMap['memory-slots-container'].children[0];
+                    let loadBtn1 = slot1Div.children.find(b => b.className.includes('btn-slot-load'));
+                    loadBtn1.listeners.click();
+                    const ctSlot1 = PopUI.readRequestContentType(elMap['req-body']);
+
+                    // Load slot 2 -> should reset contentType to empty, not leak text/plain (re-query slot2Div because DOM was re-rendered)
+                    slot2Div = elMap['memory-slots-container'].children[1];
+                    let loadBtn2 = slot2Div.children.find(b => b.className.includes('btn-slot-load'));
+                    loadBtn2.listeners.click();
+                    const ctSlot2 = PopUI.readRequestContentType(elMap['req-body']);
+                    const bodySlot2 = PopUI.readRequestBody(elMap['req-body']);
+
+                    const isJson = PopCore.looksLikeJson(bodySlot2, ctSlot2);
+                    const isNotJsonWithStaleCt = PopCore.looksLikeJson(bodySlot2, 'text/plain');
+
+                    // Diagnose slot 2 data: broken JSON must trigger INVALID_JSON warning because contentType is empty
+                    const diagRes = await PopCore.diagnose({
+                        method: 'POST',
+                        urlStr: 'https://api.example.com/v1/tx',
+                        bodyStr: bodySlot2,
+                        contentType: ctSlot2,
+                        nonce: 'n1',
+                        timestampStr: '1700000000',
+                        signature: fixtures.cases[0].signature,
+                        pubkeyPem: fixtures.public_key,
+                        evalTime: 1700000000,
+                        reqDigest: 'sha256=xxx'
+                    });
+                    const hasJsonWarn = diagRes.warnings && diagRes.warnings.some(w => w.code === PopCore.ERROR_CODES.INVALID_JSON);
+
+                    if (
+                        ctSlot1 === 'text/plain' &&
+                        ctSlot2 === '' &&
+                        isJson === true &&
+                        isNotJsonWithStaleCt === false &&
+                        hasJsonWarn === true
+                    ) {
+                        slotIsolationOk = true;
+                    }
+                } finally {
+                    global.document = prevDoc;
+                    global.localStorage = prevStorage;
+                }
+            } catch (e) {
+                console.log("Error in slotIsolationOk:", e);
+            }
+
+            // (c) Action buttons async concurrency guard
+            try {
+                const elMap = {};
+                const prevDoc = global.document;
+                const prevGlobalPopCore = global.PopCore;
+                const prevGlobalPopUI = global.PopUI;
+                try {
+                    const mockDoc = createMockDocument({
+                        elements: elMap,
+                        autoCreateElements: true,
+                        defaultTag: 'DIV'
+                    });
+                    global.document = mockDoc;
+
+                    let diagnoseCalls = 0;
+                    let resolveDiagnose;
+                    global.PopCore = Object.assign({}, PopCore, {
+                        diagnose: async () => {
+                            diagnoseCalls++;
+                            return new Promise(resolve => {
+                                resolveDiagnose = () => resolve({ error: null, stages: [], firstFailedStage: null, warnings: [] });
+                            });
+                        }
+                    });
+
+                    let generateCalls = 0;
+                    let resolveGenerate;
+                    global.PopCore.generateTestSignature = async () => {
+                        generateCalls++;
+                        return new Promise(resolve => {
+                            resolveGenerate = () => resolve({ reqDigest: 'd', signature: 's', pubkeyPem: 'p' });
+                        });
+                    };
+                    global.PopUI = PopUI;
+
+                    delete require.cache[require.resolve('../js/app.js')];
+                    require('../js/app.js');
+                    if (mockDoc.listeners['DOMContentLoaded']) {
+                        mockDoc.listeners['DOMContentLoaded']();
+                    }
+
+                    const btnDiag = elMap['btn-diagnose'];
+                    const btnGen = elMap['btn-generate-test'];
+
+                    // Test btn-diagnose concurrency guard
+                    let diagDisabledDuring = false;
+                    const pDiag1 = btnDiag.listeners['click']();
+                    diagDisabledDuring = btnDiag.disabled === true;
+                    const pDiag2 = btnDiag.listeners['click'](); // second click should be ignored
+                    if (typeof resolveDiagnose === 'function') resolveDiagnose();
+                    await pDiag1;
+                    await pDiag2;
+                    const diagReEnabledAfter = btnDiag.disabled === false;
+
+                    // Test btn-generate-test concurrency guard
+                    elMap['req-url'].value = 'https://api.example.com/v1/tx';
+                    let genDisabledDuring = false;
+                    const pGen1 = btnGen.listeners['click']();
+                    genDisabledDuring = btnGen.disabled === true;
+                    const pGen2 = btnGen.listeners['click'](); // second click should be ignored
+                    if (typeof resolveGenerate === 'function') resolveGenerate();
+                    await pGen1;
+                    await pGen2;
+                    const genReEnabledAfter = btnGen.disabled === false;
+
+                    if (
+                        diagDisabledDuring &&
+                        diagnoseCalls === 1 &&
+                        diagReEnabledAfter &&
+                        genDisabledDuring &&
+                        generateCalls === 1 &&
+                        genReEnabledAfter
+                    ) {
+                        buttonConcurrencyOk = true;
+                    }
+                } finally {
+                    global.document = prevDoc;
+                    global.PopCore = prevGlobalPopCore;
+                    global.PopUI = prevGlobalPopUI;
+                }
+            } catch (e) {
+                console.log("Error in buttonConcurrencyOk:", e);
+            }
+
+            if (helpersOk && slotIsolationOk && buttonConcurrencyOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] slot-metadata-and-button-concurrency: helpersOk=${helpersOk}, slotIsolationOk=${slotIsolationOk}, buttonConcurrencyOk=${buttonConcurrencyOk}`);
+                failed++;
+            }
+        }
+
+        // 48) Regression tests for Top 5 Senior Review Refactorings:
+        // (1) BFS stateCache multi-path preservation at depth 2-3 (indistinguishable combo hypotheses)
+        // (2) ASN.1 DER negative INTEGER (MSB >= 0x80 without 0x00 prefix) rejection
+        // (3) Stage 1 whitespace-only URL/Pubkey, Stage 4 prefix-only reqDigest ('sha256='), and generateTestSignature normalization/validation
+        // (4) Shell tokenizer double-quoted $(...) with inner quotes, special shell vars ($1, $?, $@), and \UHHHHHHHH escapes
+        // (5) JSON EOF error location fallback, nested unclosed brace/bracket hint, Unicode unquoted key, and astral surrogate width
+        {
+            let bfsComboIndistOk = false;
+            let derNegativeRejectedOk = false;
+            let stageAndGenValidationOk = false;
+            let curlTokenizerEdgeOk = false;
+            let jsonErrorEdgeOk = false;
+
+            // (1) BFS depth-2 indistinguishable combo: (query-sorted + method-lowercase) vs (query-reverse + method-lowercase)
+            try {
+                const comboCanonical = ["post", "api.example.com", "/v1/tx", "a=1&b=2", baseBodyHash, nonce, ts].join('\n');
+                const comboSig = toBase64Url(await signRaw(comboCanonical));
+                const comboDiag = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx?b=2&a=1",
+                    bodyStr: baseBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: comboSig,
+                    pubkeyPem: dynPubkeyPem,
+                    evalTime: Number(ts),
+                    reqDigest: `sha256=${baseBodyHash}`
+                });
+                const comboSet = comboDiag.hypothesisResult &&
+                    comboDiag.hypothesisResult.type === 'found' &&
+                    comboDiag.hypothesisResult.sets &&
+                    comboDiag.hypothesisResult.sets[0];
+                const comboIds = comboSet && comboSet.type === 'indistinguishable'
+                    ? comboSet.items.map(it => it.idStr).sort().join('|')
+                    : '';
+                bfsComboIndistOk =
+                    comboSet &&
+                    comboSet.type === 'indistinguishable' &&
+                    comboIds === 'method-lowercase,query-reverse|method-lowercase,query-sorted';
+            } catch (e) {
+                console.log("Error in bfsComboIndistOk:", e);
+            }
+
+            // (2) ASN.1 DER negative INTEGER rejection (MSB >= 0x80 without leading 0x00)
+            try {
+                const negDerBytes = new Uint8Array(6 + 64);
+                negDerBytes[0] = 0x30;
+                negDerBytes[1] = 68;
+                negDerBytes[2] = 0x02;
+                negDerBytes[3] = 32;
+                negDerBytes[4] = 0x80; // negative two's complement MSB set without 0x00 prefix
+                negDerBytes[36] = 0x02;
+                negDerBytes[37] = 32;
+                negDerBytes[38] = 0x01;
+                const negParsed = PopCore.parseDerSignature(negDerBytes);
+                const negRaw = PopCore.derToRaw(negDerBytes);
+                const negInspected = PopCore.inspectSignature(PopCore.base64UrlEncodeBytes(negDerBytes));
+                derNegativeRejectedOk =
+                    Boolean(negParsed && negParsed.ok === false) &&
+                    negRaw === null &&
+                    negInspected.ok === false &&
+                    negInspected.format === 'invalid' &&
+                    negInspected.error &&
+                    negInspected.error.code === 'INVALID_DER';
+            } catch (e) {
+                console.log("Error in derNegativeRejectedOk:", e);
+            }
+
+            // (3) Stage 1 whitespace-only URL/Pubkey, Stage 4 prefix-only reqDigest ('sha256='), and generateTestSignature validation
+            try {
+                const wsUrlDiag = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: "   ",
+                    bodyStr: baseBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: validSig,
+                    pubkeyPem
+                });
+                const wsPubDiag = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx",
+                    bodyStr: baseBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: validSig,
+                    pubkeyPem: "   \n  "
+                });
+                const prefixOnlyDiag = await PopCore.diagnose({
+                    method: "POST",
+                    urlStr: "https://api.example.com/v1/tx?a=1",
+                    bodyStr: baseBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: validSig,
+                    pubkeyPem,
+                    evalTime: Number(ts),
+                    reqDigest: "sha256="
+                });
+                const genSpaced = await PopCore.generateTestSignature({
+                    method: " POST ",
+                    urlStr: "  https://api.example.com/v1/tx?a=1  ",
+                    bodyStr: baseBody,
+                    nonce: " n-space ",
+                    timestampStr: ` ${ts} `
+                });
+                const diagFromGenSpaced = await PopCore.diagnose({
+                    method: " POST ",
+                    urlStr: "  https://api.example.com/v1/tx?a=1  ",
+                    bodyStr: baseBody,
+                    nonce: " n-space ",
+                    timestampStr: ` ${ts} `,
+                    signature: genSpaced.signature,
+                    pubkeyPem: genSpaced.pubkeyPem,
+                    reqDigest: genSpaced.reqDigest,
+                    evalTime: Number(ts)
+                });
+                let badTsRejected = false;
+                try {
+                    await PopCore.generateTestSignature({
+                        method: "POST",
+                        urlStr: "https://api.example.com/v1/tx",
+                        bodyStr: baseBody,
+                        nonce: "n1",
+                        timestampStr: "not-a-number"
+                    });
+                } catch (err) {
+                    badTsRejected = Boolean(err && err.code === PopCore.ERROR_CODES.INVALID_TIMESTAMP);
+                }
+
+                stageAndGenValidationOk =
+                    wsUrlDiag.firstFailedStage === 1 &&
+                    wsUrlDiag.stages[0].code === PopCore.STAGE_CODES.STAGE1_MISSING_FIELDS &&
+                    wsPubDiag.firstFailedStage === 1 &&
+                    wsPubDiag.stages[0].code === PopCore.STAGE_CODES.STAGE1_MISSING_PUBKEY &&
+                    prefixOnlyDiag.stages[3].status === 'fail' &&
+                    prefixOnlyDiag.stages[3].code === PopCore.STAGE_CODES.STAGE4_MISSING_DIGEST &&
+                    diagFromGenSpaced.error === null &&
+                    diagFromGenSpaced.firstFailedStage === null &&
+                    badTsRejected;
+            } catch (e) {
+                console.log("Error in stageAndGenValidationOk:", e);
+            }
+
+            // (4) Shell tokenizer double-quoted $(...) with inner quotes, special vars ($1, $?), and \UHHHHHHHH
+            try {
+                const subQuoteCurl = parseCurl('curl "https://api.example.com/v1/tx" -H "X-FIDO2-Nonce: $(echo "abc")" -d \'{"a":1}\'');
+                const specialVarCurl = parseCurl('curl "https://api.example.com/v1/tx?x=$1&y=$?"');
+                const ansiUCurl = parseCurl("curl 'https://api.example.com/v1/tx' -d $'{\"emoji\":\"\\U0001F600\"}'");
+                curlTokenizerEdgeOk =
+                    subQuoteCurl.ok === false &&
+                    !subQuoteCurl.unsupported.some(u => u.code === 'UNCLOSED_QUOTE') &&
+                    subQuoteCurl.unsupported.some(u => u.code === 'SHELL_EXPANSION_UNSUPPORTED') &&
+                    subQuoteCurl.inputs.bodyStr === '{"a":1}' &&
+                    specialVarCurl.ok === false &&
+                    specialVarCurl.unsupported.some(u => u.code === 'SHELL_EXPANSION_UNSUPPORTED') &&
+                    ansiUCurl.ok === true &&
+                    ansiUCurl.inputs.bodyStr === '{"emoji":"😀"}';
+            } catch (e) {
+                console.log("Error in curlTokenizerEdgeOk:", e);
+            }
+
+            // (5) JSON EOF error location fallback, nested unclosed brace/bracket hint, Unicode unquoted key, and astral surrogate width
+            try {
+                const eofJson = '{\n  "amount":';
+                const eofLoc = PopCore.extractJsonErrorLocation(new SyntaxError('Unexpected end of JSON input'), eofJson);
+                const nestedBraceHint = PopCore.detectJsonErrorHint(new SyntaxError('Unexpected end of JSON input'), '{"a": {"b": 1}');
+                const nestedBracketHint = PopCore.detectJsonErrorHint(new SyntaxError('Unexpected end of JSON input'), '[[1, 2]');
+                const korUnquotedKeyHint = PopCore.detectJsonErrorHint(new SyntaxError('Unexpected token'), '{이름: "홍길동"}');
+                const emojiSnippet = PopUI.formatJsonErrorSnippet({
+                    cleanMessage: 'Unexpected token',
+                    line: 1,
+                    column: 6, // '{"😀":' -> index 0:'{', 1:'"', 2..3:'😀', 4:'"', 5:':' (column 6)
+                    problemLine: '{"😀": 1}'
+                });
+                const pointerLine = emojiSnippet.split('\n').pop();
+                jsonErrorEdgeOk =
+                    eofLoc.line === 2 &&
+                    eofLoc.column === 12 &&
+                    eofLoc.problemLine === '  "amount":' &&
+                    nestedBraceHint && nestedBraceHint.hintCode === PopCore.JSON_HINT_CODES.MISSING_CLOSE_BRACE &&
+                    nestedBracketHint && nestedBracketHint.hintCode === PopCore.JSON_HINT_CODES.MISSING_CLOSE_BRACKET &&
+                    korUnquotedKeyHint && korUnquotedKeyHint.hintCode === PopCore.JSON_HINT_CODES.UNQUOTED_KEY &&
+                    pointerLine === '     ▲'; // 1 ('{') + 1 ('"') + 2 ('😀') + 1 ('"') = 5 spaces before ▲
+            } catch (e) {
+                console.log("Error in jsonErrorEdgeOk:", e);
+            }
+
+            if (bfsComboIndistOk && derNegativeRejectedOk && stageAndGenValidationOk && curlTokenizerEdgeOk && jsonErrorEdgeOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] senior-review-top5-regressions: bfsComboIndistOk=${bfsComboIndistOk}, derNegativeRejectedOk=${derNegativeRejectedOk}, stageAndGenValidationOk=${stageAndGenValidationOk}, curlTokenizerEdgeOk=${curlTokenizerEdgeOk}, jsonErrorEdgeOk=${jsonErrorEdgeOk}`);
+                failed++;
+            }
+        }
+
+        // 49) 5-Step Refactoring Roadmap Verification:
+        // (1) Declarative hypothesis metadata (priority, targetKind) & OCP 15th hypothesis extensibility without touching diagnose.js/render.js
+        // (2) MAX_INPUT_LENGTH guard (ERR_INPUT_TOO_LARGE) on diagnose() and generateTestSignature()
+        // (3) Headerless Raw Base64 PKCS#8 (0x30 ... 0x02 0x01 0x00) & SEC1 (0x30 ... 0x02 0x01 0x01) Private Key ASN.1 Detection
+        {
+            let ocpHypothesisOk = false;
+            let maxInputGuardOk = false;
+            let headerlessPrivKeyOk = false;
+
+            // (1) Declarative hypothesis metadata + 15th hypothesis OCP check
+            try {
+                const validTargetKinds = new Set(['canonical', 'body', 'signature']);
+                const allHaveMetadata = PopCore.HYPOTHESES.every(h =>
+                    h.priority &&
+                    typeof h.priority.stage4 === 'number' &&
+                    typeof h.priority.stage5 === 'number' &&
+                    validTargetKinds.has(h.targetKind)
+                );
+
+                const custom15thHyp = {
+                    id: 'custom-15th-body-prefix',
+                    label: '커스텀 15번째 본문 가설 (OCP 검증)',
+                    tag: '[Body]',
+                    stage: 'both',
+                    priority: { stage4: 1, stage5: 1 },
+                    targetKind: 'body',
+                    cause: '서명 당시 본문 앞에 커스텀 접두사가 포함되어 계산되었습니다.',
+                    solution: '요청 본문과 서명 당시 본문 구성 방식을 일치시키세요.',
+                    async apply(req) {
+                        if (req.rawBody && !req.rawBody.startsWith('OCP:')) {
+                            const nextBody = 'OCP:' + req.rawBody;
+                            const nextHash = await PopCore.hashString(nextBody);
+                            return { ...req, rawBody: nextBody, bodyHash: nextHash };
+                        }
+                        return req;
+                    }
+                };
+
+                PopCore.HYPOTHESES.push(custom15thHyp);
+                try {
+                    const ocpSignedBody = 'OCP:' + baseBody;
+                    const ocpSignedHash = await PopCore.hashString(ocpSignedBody);
+                    const ocpCanonical = ["POST", "api.example.com", "/v1/tx", "a=1", ocpSignedHash, nonce, ts].join('\n');
+                    const ocpSig = toBase64Url(await signRaw(ocpCanonical));
+
+                    const ocpDiag = await PopCore.diagnose({
+                        method: "POST",
+                        urlStr: "https://api.example.com/v1/tx?a=1",
+                        bodyStr: baseBody,
+                        nonce,
+                        timestampStr: ts,
+                        signature: ocpSig,
+                        pubkeyPem: dynPubkeyPem,
+                        evalTime: Number(ts),
+                        reqDigest: `sha256=${ocpSignedHash}`
+                    });
+
+                    const foundSet = ocpDiag.hypothesisResult &&
+                        ocpDiag.hypothesisResult.type === 'found' &&
+                        ocpDiag.hypothesisResult.sets &&
+                        ocpDiag.hypothesisResult.sets[0];
+
+                    let renderedBodyDiffOk = false;
+                    if (foundSet) {
+                        const prevDoc = global.document;
+                        if (typeof window === 'undefined') {
+                            global.document = createMockDocument();
+                        }
+                        try {
+                            const hBoxDiff = createMockElement('DIV');
+                            PopUI.renderSingleHypothesisSet(hBoxDiff, foundSet, ocpDiag);
+                            const hBoxSame = createMockElement('DIV');
+                            PopUI.renderSingleHypothesisSet(hBoxSame, foundSet, { ...ocpDiag, expectedCanonical: foundSet.canonical });
+                            renderedBodyDiffOk =
+                                typeof PopUI.renderSingleHypothesisSet === 'function' &&
+                                hBoxDiff.textContent.includes('커스텀 15번째 본문 가설 (OCP 검증)') &&
+                                hBoxSame.textContent.includes('원인은 본문(Body) 또는 다이제스트 계산 방식의 차이입니다');
+                        } finally {
+                            if (typeof window === 'undefined') {
+                                global.document = prevDoc;
+                            }
+                        }
+                    }
+
+                    ocpHypothesisOk =
+                        allHaveMetadata &&
+                        Boolean(foundSet && foundSet.type === 'match' && foundSet.items[0].idStr === 'custom-15th-body-prefix') &&
+                        Boolean(foundSet && foundSet.items[0].history[0].targetKind === 'body') &&
+                        renderedBodyDiffOk;
+                } finally {
+                    const idx = PopCore.HYPOTHESES.indexOf(custom15thHyp);
+                    if (idx !== -1) PopCore.HYPOTHESES.splice(idx, 1);
+                }
+            } catch (e) {
+                console.log("Error in ocpHypothesisOk:", e);
+            }
+
+            // (2) MAX_INPUT_LENGTH guard on diagnose() and generateTestSignature()
+            try {
+                const oversizedStr = 'x'.repeat(PopCore.MAX_INPUT_LENGTH + 1);
+                const diagBigBody = await PopCore.diagnose({
+                    method: 'POST',
+                    urlStr: 'https://api.example.com/v1/tx',
+                    bodyStr: oversizedStr,
+                    nonce,
+                    timestampStr: ts,
+                    signature: validSig,
+                    pubkeyPem
+                });
+                const diagBigUrl = await PopCore.diagnose({
+                    method: 'POST',
+                    urlStr: 'https://api.example.com/' + oversizedStr,
+                    bodyStr: baseBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: validSig,
+                    pubkeyPem
+                });
+
+                let genBigBodyRejected = false;
+                try {
+                    await PopCore.generateTestSignature({
+                        method: 'POST',
+                        urlStr: 'https://api.example.com/v1/tx',
+                        bodyStr: oversizedStr,
+                        nonce,
+                        timestampStr: ts
+                    });
+                } catch (err) {
+                    genBigBodyRejected = Boolean(err && err.code === PopCore.ERROR_CODES.INPUT_TOO_LARGE);
+                }
+
+                let genBigUrlRejected = false;
+                try {
+                    await PopCore.generateTestSignature({
+                        method: 'POST',
+                        urlStr: 'https://api.example.com/' + oversizedStr,
+                        bodyStr: baseBody,
+                        nonce,
+                        timestampStr: ts
+                    });
+                } catch (err) {
+                    genBigUrlRejected = Boolean(err && err.code === PopCore.ERROR_CODES.INPUT_TOO_LARGE);
+                }
+
+                maxInputGuardOk =
+                    PopCore.ERROR_CODES.INPUT_TOO_LARGE === 'ERR_INPUT_TOO_LARGE' &&
+                    Boolean(diagBigBody.error && diagBigBody.error.code === 'ERR_INPUT_TOO_LARGE') &&
+                    Boolean(diagBigUrl.error && diagBigUrl.error.code === 'ERR_INPUT_TOO_LARGE') &&
+                    genBigBodyRejected &&
+                    genBigUrlRejected;
+            } catch (e) {
+                console.log("Error in maxInputGuardOk:", e);
+            }
+
+            // (3) Headerless Raw Base64 PKCS#8 (0x30 ... 0x02 0x01 0x00) & SEC1 (0x30 ... 0x02 0x01 0x01) Private Key ASN.1 Detection
+            try {
+                const toStandardB64 = (bytes) => _btoa(PopCore.bytesToBinaryString(bytes));
+
+                // Short-form PKCS#8 PrivateKeyInfo (SEQUENCE -> INTEGER 0 -> ...)
+                const pkcs8ShortBytes = new Uint8Array([
+                    0x30, 0x26,
+                    0x02, 0x01, 0x00, // version 0 (PKCS#8 PrivateKeyInfo)
+                    0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
+                    0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
+                    0x04, 0x0c, 0x30, 0x0a, 0x02, 0x01, 0x01, 0x04, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05
+                ]);
+                const rawPkcs8B64 = toStandardB64(pkcs8ShortBytes);
+
+                // Long-form (> 127 bytes) PKCS#8 PrivateKeyInfo (0x30 0x81 0x85 0x02 0x01 0x00 ...)
+                const pkcs8LongBytes = new Uint8Array(3 + 133);
+                pkcs8LongBytes[0] = 0x30;
+                pkcs8LongBytes[1] = 0x81;
+                pkcs8LongBytes[2] = 133;
+                pkcs8LongBytes[3] = 0x02;
+                pkcs8LongBytes[4] = 0x01;
+                pkcs8LongBytes[5] = 0x00;
+                const rawPkcs8LongB64 = toStandardB64(pkcs8LongBytes);
+
+                // RFC 5915 SEC1 ECPrivateKey (SEQUENCE -> INTEGER 1 -> OCTET STRING ...)
+                const sec1Bytes = new Uint8Array([
+                    0x30, 0x25,
+                    0x02, 0x01, 0x01, // version 1 (SEC1 ECPrivateKey)
+                    0x04, 0x20,
+                    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88
+                ]);
+                const rawSec1B64 = toStandardB64(sec1Bytes);
+
+                // Strip PEM headers from valid SPKI public key to ensure no false positive
+                const validHeaderlessSpki = pubkeyPem
+                    .replace(/-----BEGIN PUBLIC KEY-----/g, '')
+                    .replace(/-----END PUBLIC KEY-----/g, '')
+                    .trim();
+
+                const markerChecksOk =
+                    PopCore.containsPrivateKeyMarker(rawPkcs8B64) === true &&
+                    PopCore.containsPrivateKeyMarker(rawPkcs8LongB64) === true &&
+                    PopCore.containsPrivateKeyMarker(rawSec1B64) === true &&
+                    PopCore.containsPrivateKeyMarker(validHeaderlessSpki) === false;
+
+                const spkiPkcs8 = PopCore.extractPublicKeySpkiBytes(rawPkcs8B64);
+                const spkiSec1 = PopCore.extractPublicKeySpkiBytes(rawSec1B64);
+                const extractChecksOk =
+                    spkiPkcs8.ok === false &&
+                    spkiPkcs8.code === 'PRIVATE_KEY_REJECTED' &&
+                    spkiPkcs8.warnings.some(w => w.code === 'PRIVATE_KEY_INPUT') &&
+                    spkiSec1.ok === false &&
+                    spkiSec1.code === 'PRIVATE_KEY_REJECTED' &&
+                    spkiSec1.warnings.some(w => w.code === 'PRIVATE_KEY_INPUT');
+
+                const inspectPkcs8 = await PopCore.inspectPublicKey(rawPkcs8B64);
+                const inspectSec1 = await PopCore.inspectPublicKey(rawSec1B64);
+                const inspectChecksOk =
+                    inspectPkcs8.ok === false &&
+                    inspectPkcs8.error && inspectPkcs8.error.code === 'PRIVATE_KEY_REJECTED' &&
+                    inspectSec1.ok === false &&
+                    inspectSec1.error && inspectSec1.error.code === 'PRIVATE_KEY_REJECTED';
+
+                const diagPkcs8 = await PopCore.diagnose({
+                    method: 'POST',
+                    urlStr: 'https://api.example.com/v1/tx?a=1',
+                    bodyStr: baseBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: validSig,
+                    pubkeyPem: rawPkcs8B64,
+                    evalTime: Number(ts)
+                });
+                const diagSec1 = await PopCore.diagnose({
+                    method: 'POST',
+                    urlStr: 'https://api.example.com/v1/tx?a=1',
+                    bodyStr: baseBody,
+                    nonce,
+                    timestampStr: ts,
+                    signature: validSig,
+                    pubkeyPem: rawSec1B64,
+                    evalTime: Number(ts)
+                });
+                const diagChecksOk =
+                    Boolean(diagPkcs8.error && diagPkcs8.error.code === PopCore.ERROR_CODES.INVALID_PUBKEY && diagPkcs8.error.causeCode === 'PRIVATE_KEY_REJECTED') &&
+                    diagPkcs8.warnings.some(w => w.code === 'PRIVATE_KEY_INPUT') &&
+                    Boolean(diagSec1.error && diagSec1.error.code === PopCore.ERROR_CODES.INVALID_PUBKEY && diagSec1.error.causeCode === 'PRIVATE_KEY_REJECTED') &&
+                    diagSec1.warnings.some(w => w.code === 'PRIVATE_KEY_INPUT');
+
+                headerlessPrivKeyOk = markerChecksOk && extractChecksOk && inspectChecksOk && diagChecksOk;
+            } catch (e) {
+                console.log("Error in headerlessPrivKeyOk:", e);
+            }
+
+            if (ocpHypothesisOk && maxInputGuardOk && headerlessPrivKeyOk) {
+                passed++;
+            } else {
+                console.log(`[FAIL] roadmap-5step-regressions: ocpHypothesisOk=${ocpHypothesisOk}, maxInputGuardOk=${maxInputGuardOk}, headerlessPrivKeyOk=${headerlessPrivKeyOk}`);
                 failed++;
             }
         }
