@@ -33,15 +33,28 @@
         bytesToHex,
         PEM_PUBLIC_KEY_HEADER,
         PEM_PUBLIC_KEY_FOOTER,
+        containsPrivateKeyMarker,
         extractPublicKeySpkiBytes,
         parseDerSignature,
         importPublicKey,
         derToRaw,
         verifySig,
         generateKeyPairAndSign,
+        P256_P,
+        P256_A,
+        P256_B,
+        P256_N,
+        P256_HALF_N,
+        OID_EC_PUBLIC_KEY,
+        OID_RSA_ENCRYPTION,
+        OID_P256,
+        isPointOnP256Curve,
         detectAndDecodeSignature,
+        inspectDerStructure,
         inspectSignature,
         inspectPublicKey,
+        MAX_INPUT_LENGTH = 512 * 1024,
+        createEmptyInputs,
         parseCurl,
         parseRawHttp,
         buildString,
@@ -56,7 +69,8 @@
         INVALID_URL: 'ERR_INVALID_URL',
         INVALID_PUBKEY: 'ERR_INVALID_PUBKEY',
         INVALID_SIGNATURE_ENCODING: 'ERR_INVALID_SIGNATURE_ENCODING',
-        INVALID_TIMESTAMP: 'ERR_INVALID_TIMESTAMP'
+        INVALID_TIMESTAMP: 'ERR_INVALID_TIMESTAMP',
+        INPUT_TOO_LARGE: 'ERR_INPUT_TOO_LARGE'
     };
 
     const STAGE_CODES = {
@@ -155,13 +169,13 @@
     function evaluateStage1Headers(norm, profile) {
         const def = profile.stages[STAGE_IDS.HEADERS];
         const missingReqFields = [];
-        if (!norm.method) missingReqFields.push('HTTP 메서드');
-        if (!norm.urlStr) missingReqFields.push('요청 URL');
-        if (!norm.nonce) missingReqFields.push('Nonce');
-        if (!norm.timestampStr) missingReqFields.push('Timestamp');
-        if (!norm.signature) missingReqFields.push('Signature(서명)');
+        if (!norm.method.trim()) missingReqFields.push('HTTP 메서드');
+        if (!norm.urlStr.trim()) missingReqFields.push('요청 URL');
+        if (profile.stripWhitespace ? !norm.nonce.trim() : !norm.nonce) missingReqFields.push('Nonce');
+        if (!norm.timestampStr.trim()) missingReqFields.push('Timestamp');
+        if (!norm.signature.trim()) missingReqFields.push('Signature(서명)');
 
-        const missingPubkey = !norm.pubkeyPem;
+        const missingPubkey = !norm.pubkeyPem.trim();
         const passed = missingReqFields.length === 0 && !missingPubkey;
 
         let failReason = def.failReason;
@@ -274,6 +288,7 @@
             cryptoKey = await importPublicKey(norm.pubkeyPem);
         } catch (e) {
             return {
+                warnings: Array.isArray(e.warnings) ? e.warnings : [],
                 error: {
                     code: ERROR_CODES.INVALID_PUBKEY,
                     causeCode: e.code || null,
@@ -435,20 +450,6 @@
         };
     }
 
-    const STAGE4_HYPOTHESIS_PRIORITY = {
-        'sig-base64url': 1,
-        'sig-der': 2
-    };
-
-    const STAGE5_HYPOTHESIS_PRIORITY = {
-        'body-reserialized-nospace': 1,
-        'newline-crlf': 2,
-        'newline-trailing': 3,
-        'body-bom-added': 4,
-        'digest-base64url': 5,
-        'digest-hex': 6
-    };
-
     async function applyStage5Hypothesis(req, h, stage5Id) {
         return await h.apply(req, stage5Id);
     }
@@ -461,51 +462,69 @@
         const stage5Hypotheses = HYPOTHESES
             .filter(h => h.stage === stage5Id || h.stage === 'both')
             .slice()
-            .sort((a, b) => (STAGE5_HYPOTHESIS_PRIORITY[a.id] || 10) - (STAGE5_HYPOTHESIS_PRIORITY[b.id] || 10));
+            .sort((a, b) => (a.priority?.stage5 ?? 10) - (b.priority?.stage5 ?? 10));
 
         const stage5BaseReq = { ...baseReq, bodyHash: bodyHashHex, targetDigest: cleanReqDigest };
-        const queue = [{ req: stage5BaseReq, history: [], startIdx: 0 }];
+        const rootEntry = { depth: 0, matched: false, minNextIdx: 0, paths: [{ history: [], nextIdx: 0 }] };
+        const queue = [{ req: stage5BaseReq, depth: 0, entry: rootEntry }];
         const stage5Matches = [];
         const stateCache = new Map();
-        stateCache.set(`${stage5BaseReq.rawBody}|${bodyHashHex}`, { depth: 0, matched: false, minNextIdx: 0 });
+        stateCache.set(
+            `${stage5BaseReq.bodyHash}|${stage5BaseReq.rawBody.length}|${stage5BaseReq.rawBody.startsWith('\uFEFF') ? 1 : 0}|${stage5BaseReq.rawBody.endsWith('\n') ? 1 : 0}`,
+            rootEntry
+        );
         let evalCount = 0;
         let reduced = false;
 
         outerLoop:
         while (queue.length > 0) {
             const current = queue.shift();
-            if (current.history.length >= profile.maxComboDepth) continue;
+            if (current.depth >= profile.maxComboDepth) continue;
 
-            for (let i = current.startIdx; i < stage5Hypotheses.length; i++) {
+            for (let i = current.entry.minNextIdx; i < stage5Hypotheses.length; i++) {
+                const eligiblePaths = current.entry.paths.filter(p => i >= p.nextIdx);
+                if (eligiblePaths.length === 0) continue;
+
                 const h = stage5Hypotheses[i];
                 const nextReq = await applyStage5Hypothesis(current.req, h, stage5Id);
                 if (nextReq.bodyHash === current.req.bodyHash && nextReq.rawBody === current.req.rawBody) {
                     continue;
                 }
 
-                const nextDepth = current.history.length + 1;
-                const stateKey = `${nextReq.rawBody}|${nextReq.bodyHash}`;
+                const nextDepth = current.depth + 1;
+                const stateKey = `${nextReq.bodyHash}|${nextReq.rawBody.length}|${nextReq.rawBody.startsWith('\uFEFF') ? 1 : 0}|${nextReq.rawBody.endsWith('\n') ? 1 : 0}`;
                 const cached = stateCache.get(stateKey);
                 if (cached && cached.depth < nextDepth) {
                     continue;
                 }
 
-                const nextHistory = [
-                    ...current.history,
-                    { id: h.id, label: h.label, tag: h.tag, cause: h.cause, solution: h.solution }
-                ];
+                const hMeta = {
+                    id: h.id,
+                    label: h.label,
+                    tag: h.tag,
+                    targetKind: h.targetKind,
+                    priority: h.priority,
+                    cause: h.cause,
+                    solution: h.solution
+                };
+                const newPaths = eligiblePaths.map(p => ({
+                    history: [...p.history, hMeta],
+                    nextIdx: i + 1
+                }));
 
                 if (cached && cached.depth === nextDepth) {
                     if (cached.matched) {
-                        stage5Matches.push({
-                            history: nextHistory,
-                            canonical: buildString({ ...baseReq, bodyHash: cleanReqDigest }, profile),
-                            signatureHex: bytesToHex(baseReq.parsedSignature)
-                        });
-                    } else if (i + 1 < cached.minNextIdx) {
-                        cached.minNextIdx = i + 1;
-                        if (nextDepth < profile.maxComboDepth) {
-                            queue.push({ req: nextReq, history: nextHistory, startIdx: i + 1 });
+                        for (const np of newPaths) {
+                            stage5Matches.push({
+                                history: np.history,
+                                canonical: buildString({ ...baseReq, bodyHash: cleanReqDigest }, profile),
+                                signatureHex: bytesToHex(baseReq.parsedSignature)
+                            });
+                        }
+                    } else {
+                        cached.paths.push(...newPaths);
+                        if (i + 1 < cached.minNextIdx) {
+                            cached.minNextIdx = i + 1;
                         }
                     }
                     continue;
@@ -518,16 +537,19 @@
                 evalCount++;
 
                 const isMatch = nextReq.bodyHash === cleanReqDigest && nextReq.bodyHash !== bodyHashHex;
-                stateCache.set(stateKey, { depth: nextDepth, matched: isMatch, minNextIdx: i + 1 });
+                const newEntry = { depth: nextDepth, matched: isMatch, minNextIdx: i + 1, paths: newPaths };
+                stateCache.set(stateKey, newEntry);
 
                 if (isMatch) {
-                    stage5Matches.push({
-                        history: nextHistory,
-                        canonical: buildString({ ...baseReq, bodyHash: cleanReqDigest }, profile),
-                        signatureHex: bytesToHex(baseReq.parsedSignature)
-                    });
+                    for (const np of newPaths) {
+                        stage5Matches.push({
+                            history: np.history,
+                            canonical: buildString({ ...baseReq, bodyHash: cleanReqDigest }, profile),
+                            signatureHex: bytesToHex(baseReq.parsedSignature)
+                        });
+                    }
                 } else if (nextDepth < profile.maxComboDepth) {
-                    queue.push({ req: nextReq, history: nextHistory, startIdx: i + 1 });
+                    queue.push({ req: nextReq, depth: nextDepth, entry: newEntry });
                 }
             }
         }
@@ -583,14 +605,15 @@
         const stage4Hypotheses = HYPOTHESES
             .filter(h => h.stage === stage4Id || h.stage === 'both')
             .slice()
-            .sort((a, b) => (STAGE4_HYPOTHESIS_PRIORITY[a.id] || 10) - (STAGE4_HYPOTHESIS_PRIORITY[b.id] || 10));
+            .sort((a, b) => (a.priority?.stage4 ?? 10) - (b.priority?.stage4 ?? 10));
 
         const rootCanonical = buildString(baseReq, profile);
         const rootSigHex = bytesToHex(baseReq.parsedSignature);
+        const rootEntry = { depth: 0, verified: false, minNextIdx: 0, paths: [{ history: [], nextIdx: 0 }] };
         const stateCache = new Map();
-        stateCache.set(`${rootCanonical}|${rootSigHex}|${baseReq.stdBase64Signature ? 1 : 0}`, { depth: 0, verified: false, minNextIdx: 0 });
+        stateCache.set(`${rootCanonical}|${rootSigHex}|${baseReq.stdBase64Signature ? 1 : 0}`, rootEntry);
 
-        const queue = [{ req: baseReq, history: [], startIdx: 0 }];
+        const queue = [{ req: baseReq, depth: 0, entry: rootEntry }];
         const matches = [];
         let verifyCount = 0;
         let reduced = false;
@@ -598,12 +621,15 @@
         outerLoop:
         while (queue.length > 0) {
             const current = queue.shift();
-            if (current.history.length >= profile.maxComboDepth) continue;
+            if (current.depth >= profile.maxComboDepth) continue;
 
             const canonical = buildString(current.req, profile);
             const currentSigHex = bytesToHex(current.req.parsedSignature);
 
-            for (let i = current.startIdx; i < stage4Hypotheses.length; i++) {
+            for (let i = current.entry.minNextIdx; i < stage4Hypotheses.length; i++) {
+                const eligiblePaths = current.entry.paths.filter(p => i >= p.nextIdx);
+                if (eligiblePaths.length === 0) continue;
+
                 const h = stage4Hypotheses[i];
                 const nextReq = await h.apply(current.req, stage4Id);
                 const nextCanonical = buildString(nextReq, profile);
@@ -612,29 +638,40 @@
                     continue;
                 }
 
-                const nextDepth = current.history.length + 1;
+                const nextDepth = current.depth + 1;
                 const stateKey = `${nextCanonical}|${nextSigHex}|${nextReq.stdBase64Signature ? 1 : 0}`;
                 const cached = stateCache.get(stateKey);
                 if (cached && cached.depth < nextDepth) {
                     continue;
                 }
 
-                const nextHistory = [
-                    ...current.history,
-                    { id: h.id, label: h.label, tag: h.tag, cause: h.cause, solution: h.solution }
-                ];
+                const hMeta = {
+                    id: h.id,
+                    label: h.label,
+                    tag: h.tag,
+                    targetKind: h.targetKind,
+                    priority: h.priority,
+                    cause: h.cause,
+                    solution: h.solution
+                };
+                const newPaths = eligiblePaths.map(p => ({
+                    history: [...p.history, hMeta],
+                    nextIdx: i + 1
+                }));
 
                 if (cached && cached.depth === nextDepth) {
                     if (cached.verified) {
-                        matches.push({
-                            history: nextHistory,
-                            canonical: nextCanonical,
-                            signatureHex: nextSigHex
-                        });
-                    } else if (i + 1 < cached.minNextIdx) {
-                        cached.minNextIdx = i + 1;
-                        if (nextDepth < profile.maxComboDepth) {
-                            queue.push({ req: nextReq, history: nextHistory, startIdx: i + 1 });
+                        for (const np of newPaths) {
+                            matches.push({
+                                history: np.history,
+                                canonical: nextCanonical,
+                                signatureHex: nextSigHex
+                            });
+                        }
+                    } else {
+                        cached.paths.push(...newPaths);
+                        if (i + 1 < cached.minNextIdx) {
+                            cached.minNextIdx = i + 1;
                         }
                     }
                     continue;
@@ -649,16 +686,19 @@
                     verifyCount++;
                     isSigValid = await verifySig(cryptoKey, nextReq.parsedSignature, nextCanonical);
                 }
-                stateCache.set(stateKey, { depth: nextDepth, verified: isSigValid, minNextIdx: i + 1 });
+                const newEntry = { depth: nextDepth, verified: isSigValid, minNextIdx: i + 1, paths: newPaths };
+                stateCache.set(stateKey, newEntry);
 
                 if (isSigValid) {
-                    matches.push({
-                        history: nextHistory,
-                        canonical: nextCanonical,
-                        signatureHex: nextSigHex
-                    });
+                    for (const np of newPaths) {
+                        matches.push({
+                            history: np.history,
+                            canonical: nextCanonical,
+                            signatureHex: nextSigHex
+                        });
+                    }
                 } else if (nextDepth < profile.maxComboDepth) {
-                    queue.push({ req: nextReq, history: nextHistory, startIdx: i + 1 });
+                    queue.push({ req: nextReq, depth: nextDepth, entry: newEntry });
                 }
             }
         }
@@ -709,6 +749,14 @@
             stage5HypothesisResult: null,
             hypothesisResult: null
         };
+
+        if (norm.bodyStr.length > MAX_INPUT_LENGTH || norm.urlStr.length > MAX_INPUT_LENGTH) {
+            result.error = {
+                code: ERROR_CODES.INPUT_TOO_LARGE,
+                message: `입력 데이터 크기가 허용 한도(${Math.floor(MAX_INPUT_LENGTH / 1024)}KB)를 초과했습니다.`
+            };
+            return result;
+        }
 
         const stripWhitespace = (inputs && inputs.stripWhitespace !== false) && (!profile || profile.stripWhitespace !== false);
         if (stripWhitespace) {
@@ -769,6 +817,9 @@
 
         const parsed = await parseAndValidateInputs(norm, activeProfile);
         if (parsed.error) {
+            if (Array.isArray(parsed.warnings) && parsed.warnings.length > 0) {
+                result.warnings.push(...parsed.warnings);
+            }
             appendJsonWarning(false);
             result.error = parsed.error;
             return result;
@@ -791,9 +842,9 @@
         result.expectedCanonical = stage4ExpectedCanonical;
         result.stage5ExpectedCanonical = stage5ExpectedCanonical;
 
-        const s4 = await evaluateStage4Signature(parsed.cryptoKey, baseReq, stage4ExpectedCanonical, norm.reqDigest, activeProfile);
+        const s4 = await evaluateStage4Signature(parsed.cryptoKey, baseReq, stage4ExpectedCanonical, cleanReqDigest, activeProfile);
         result.stages.push(s4.stage);
-        if ((!norm.reqDigest || !s4.passed) && !result.firstFailedStage) {
+        if ((!cleanReqDigest || !s4.passed) && !result.firstFailedStage) {
             result.firstFailedStage = activeProfile.stages[STAGE_IDS.SIGNATURE].id;
         }
 
@@ -880,16 +931,37 @@
     async function generateTestSignature(inputs, profile = PaperProfile) {
         const activeProfile = profile || PaperProfile;
         const norm = normalizeInputs(inputs);
+        if (norm.bodyStr.length > MAX_INPUT_LENGTH || norm.urlStr.length > MAX_INPUT_LENGTH) {
+            const err = new Error(`입력 데이터 크기가 허용 한도(${Math.floor(MAX_INPUT_LENGTH / 1024)}KB)를 초과했습니다.`);
+            err.code = ERROR_CODES.INPUT_TOO_LARGE;
+            throw err;
+        }
+        const shouldStrip = !inputs || inputs.stripWhitespace !== false;
+        const cleanUrlStr = shouldStrip ? norm.urlStr.trim() : norm.urlStr;
+        const cleanMethod = shouldStrip ? norm.method.replace(/\s+/g, '') : norm.method;
+        const cleanNonce = shouldStrip ? norm.nonce.replace(/\s+/g, '') : norm.nonce;
+        const cleanTimestampStr = shouldStrip ? norm.timestampStr.replace(/\s+/g, '') : norm.timestampStr;
 
         let url;
         try {
-            url = new URL(norm.urlStr);
+            url = new URL(cleanUrlStr);
             if (url.protocol !== 'http:' && url.protocol !== 'https:') {
                 throw new Error('Only HTTP(S) URLs are supported');
             }
         } catch (e) {
             const err = new Error("URL이 올바르지 않습니다.");
             err.code = ERROR_CODES.INVALID_URL;
+            throw err;
+        }
+
+        if (
+            !cleanTimestampStr ||
+            !/^\d+$/.test(cleanTimestampStr) ||
+            cleanTimestampStr.length > 15 ||
+            !Number.isSafeInteger(Number(cleanTimestampStr))
+        ) {
+            const err = new Error("Timestamp가 올바른 숫자 형식이 아닙니다.");
+            err.code = ERROR_CODES.INVALID_TIMESTAMP;
             throw err;
         }
 
@@ -903,13 +975,13 @@
         const prefixStr = activeProfile.digestPrefixStr || "sha256=";
         const reqDigest = prefixStr + digestHex;
         const canonicalStr = buildString({
-            method: activeProfile.methodCase === 'UPPER' ? norm.method.toUpperCase() : norm.method,
-            host: extractEffectiveHost(url, norm.urlStr),
+            method: activeProfile.methodCase === 'UPPER' ? cleanMethod.toUpperCase() : cleanMethod,
+            host: extractEffectiveHost(url, cleanUrlStr),
             path: url.pathname,
             query: url.search.substring(1) || "",
             bodyHash: digestHex,
-            nonce: norm.nonce,
-            timestamp: norm.timestampStr,
+            nonce: cleanNonce,
+            timestamp: cleanTimestampStr,
             delimiter: activeProfile.delimiter,
             trailingNewline: activeProfile.trailingNewline
         }, activeProfile);
@@ -942,11 +1014,24 @@
         JSON_HINT_CODES,
         detectJsonErrorHint,
         extractJsonErrorLocation,
+        P256_P,
+        P256_A,
+        P256_B,
+        P256_N,
+        P256_HALF_N,
+        OID_EC_PUBLIC_KEY,
+        OID_RSA_ENCRYPTION,
+        OID_P256,
+        isPointOnP256Curve,
         detectAndDecodeSignature,
+        inspectDerStructure,
         inspectSignature,
         inspectPublicKey,
+        MAX_INPUT_LENGTH,
+        createEmptyInputs,
         parseCurl,
         parseRawHttp,
+        containsPrivateKeyMarker,
         extractPublicKeySpkiBytes,
         parseDerSignature,
         importPublicKey,

@@ -243,7 +243,7 @@
         return diffBox;
     }
 
-    function renderFoundHypothesis(hBox, set, result) {
+    function renderSingleHypothesisSet(hBox, set, result) {
         if (set.type === 'match') {
             const p = document.createElement('p');
             const labels = set.item.history.map(x => `${getTagLabel(x.tag)} ${x.label}`).join(' + ');
@@ -261,24 +261,6 @@
                 ul.appendChild(li);
             });
             hBox.appendChild(ul);
-        }
-
-        const isCanonicalSame = result.expectedCanonical === set.canonical;
-        if (isCanonicalSame) {
-            const matchBox = document.createElement('div');
-            matchBox.className = 'canonical-match-notice';
-            const strongNotice = document.createElement('strong');
-            strongNotice.textContent = '💡 서명 대상 문자열(Canonical String)은 게이트웨이 기준과 완전히 일치합니다.';
-            matchBox.appendChild(strongNotice);
-            matchBox.appendChild(document.createElement('br'));
-            matchBox.appendChild(document.createTextNode('문자열에는 오차가 없으며, 원인은 서명 데이터 자체의 인코딩 또는 포맷 차이입니다. 아래 해결 가이드를 확인해 주세요.'));
-            hBox.appendChild(matchBox);
-        } else {
-            const pExp = document.createElement('p');
-            pExp.className = 'desc-label';
-            pExp.textContent = "문자열 차이점 (- 클라이언트가 서명한 잘못된 값 / + 게이트웨이가 요구하는 올바른 규격):";
-            hBox.appendChild(pExp);
-            hBox.appendChild(renderDiffView(result.expectedCanonical, set.canonical));
         }
 
         const rawHistoryItems = (set.type === 'indistinguishable' && Array.isArray(set.items))
@@ -299,6 +281,29 @@
                 historyItems.push(h);
             }
         });
+
+        const hasBodyTarget = historyItems.some(h => h.targetKind === 'body');
+        const hasSignatureTarget = historyItems.some(h => h.targetKind === 'signature');
+        const isCanonicalSame = result.expectedCanonical === set.canonical;
+        if (isCanonicalSame) {
+            const matchBox = document.createElement('div');
+            matchBox.className = 'canonical-match-notice';
+            const strongNotice = document.createElement('strong');
+            strongNotice.textContent = '💡 서명 대상 문자열(Canonical String)은 게이트웨이 기준과 완전히 일치합니다.';
+            matchBox.appendChild(strongNotice);
+            matchBox.appendChild(document.createElement('br'));
+            const detailText = (hasBodyTarget && !hasSignatureTarget)
+                ? '문자열 포맷에는 오차가 없으며, 원인은 본문(Body) 또는 다이제스트 계산 방식의 차이입니다. 아래 해결 가이드를 확인해 주세요.'
+                : '문자열에는 오차가 없으며, 원인은 서명 데이터 자체의 인코딩 또는 포맷 차이입니다. 아래 해결 가이드를 확인해 주세요.';
+            matchBox.appendChild(document.createTextNode(detailText));
+            hBox.appendChild(matchBox);
+        } else {
+            const pExp = document.createElement('p');
+            pExp.className = 'desc-label';
+            pExp.textContent = "문자열 차이점 (- 클라이언트가 서명한 잘못된 값 / + 게이트웨이가 요구하는 올바른 규격):";
+            hBox.appendChild(pExp);
+            hBox.appendChild(renderDiffView(result.expectedCanonical, set.canonical));
+        }
 
         const hasAnyGuide = historyItems.some(h => h.cause || h.solution);
         if (hasAnyGuide) {
@@ -337,6 +342,8 @@
             hBox.appendChild(guideBox);
         }
     }
+
+    const renderFoundHypothesis = renderSingleHypothesisSet;
 
     function renderNoMatchHypothesis(hBox, expectedCanonical, markBoxError = true) {
         if (markBoxError) {
@@ -383,7 +390,7 @@
 
         if (stageRes.type === 'found' && Array.isArray(stageRes.sets) && stageRes.sets.length > 0) {
             stageRes.sets.forEach((set) => {
-                renderFoundHypothesis(container, set, stageContext);
+                renderSingleHypothesisSet(container, set, stageContext);
             });
         } else if (stageRes.type === 'no-match') {
             renderNoMatchHypothesis(container, stageContext.expectedCanonical, markContainerError);
@@ -524,6 +531,7 @@
         setOverheadVisible,
         getTagLabel,
         renderDiffView,
+        renderSingleHypothesisSet,
         renderFoundHypothesis,
         renderHypothesisSection,
         renderResult,
