@@ -128,12 +128,16 @@
     const PUBKEY_CLEARED_NOTICE = '• 안내: 공개키(Public Key)는 cURL/HTTP 요청에 포함되지 않으므로 초기화되었습니다. [예시 공개키 채우기] 버튼을 누르거나 직접 공개키(PEM)를 입력해 주세요.';
     const TEXTAREA_LF_NOTICE = '• 참고: 브라우저 입력창(textarea)은 HTML 표준에 따라 직접 입력·붙여넣은 줄바꿈을 LF(\\n)로 정규화합니다. (cURL의 $\'...\\r\\n...\' 이스케이프 및 가져온 본문의 원본 줄바꿈은 보존되며, 줄바꿈 차이로 인한 해시 불일치는 5단계 newline-crlf 가설이 양방향으로 진단합니다.)';
 
-    function setRawTextareaValue(el, rawStr) {
+    function setRawTextareaValue(el, rawStr, contentType = '') {
         if (!el) return;
         const val = String(rawStr ?? '');
         el.value = val;
         el._rawBody = val;
-        delete el._contentType;
+        if (contentType) {
+            el._contentType = String(contentType);
+        } else {
+            delete el._contentType;
+        }
     }
 
     function readRequestBody(el) {
@@ -145,6 +149,11 @@
             }
         }
         return domVal;
+    }
+
+    function readRequestContentType(el) {
+        if (!el) return '';
+        return (typeof el._contentType === 'string') ? el._contentType : '';
     }
 
     function hasExistingRequestInput() {
@@ -164,8 +173,7 @@
             if (el) {
                 const val = parseResult.inputs[item.key] ?? '';
                 if (item.key === 'bodyStr') {
-                    setRawTextareaValue(el, val);
-                    el._contentType = String(parseResult.inputs.contentType ?? '');
+                    setRawTextareaValue(el, val, parseResult.inputs.contentType ?? '');
                 } else {
                     el.value = val;
                 }
@@ -402,6 +410,7 @@
         TEXTAREA_LF_NOTICE,
         setRawTextareaValue,
         readRequestBody,
+        readRequestContentType,
         buildImportSample,
         renderImportStatus,
         applyParsedInputsToDom,

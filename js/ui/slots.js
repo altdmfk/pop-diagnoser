@@ -5,12 +5,15 @@
     const inspectorMod = (typeof module !== 'undefined' && module.exports)
         ? require('./inspector.js')
         : root.PopUI;
-    const mod = factory(renderMod, inspectorMod);
+    const importerMod = (typeof module !== 'undefined' && module.exports)
+        ? require('./importer.js')
+        : root.PopUI;
+    const mod = factory(renderMod, inspectorMod, importerMod);
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = mod;
     }
     root.PopUI = Object.assign(root.PopUI || {}, mod);
-})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (renderMod, inspectorMod) {
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this), function (renderMod, inspectorMod, importerMod) {
     const STORAGE_KEY = 'popDiagnoserSlots';
     const MAX_SLOTS = 5;
     const SLOT_FIELD_MAP = [
@@ -98,6 +101,26 @@
             }
         }
 
+        function getSetRawTextareaValue() {
+            if (importerMod && typeof importerMod.setRawTextareaValue === 'function') {
+                return importerMod.setRawTextareaValue;
+            }
+            if (typeof globalThis !== 'undefined' && globalThis.PopUI && typeof globalThis.PopUI.setRawTextareaValue === 'function') {
+                return globalThis.PopUI.setRawTextareaValue;
+            }
+            return null;
+        }
+
+        function getReadRequestContentType() {
+            if (importerMod && typeof importerMod.readRequestContentType === 'function') {
+                return importerMod.readRequestContentType;
+            }
+            if (typeof globalThis !== 'undefined' && globalThis.PopUI && typeof globalThis.PopUI.readRequestContentType === 'function') {
+                return globalThis.PopUI.readRequestContentType;
+            }
+            return null;
+        }
+
         function saveToSlot(i) {
             const data = {
                 time: new Date().toLocaleTimeString('ko-KR', { hour12: false })
@@ -116,6 +139,12 @@
                     data[item.key] = el.value;
                 }
             }
+            const bodyEl = document.getElementById('req-body');
+            const readCt = getReadRequestContentType();
+            data.contentType = typeof readCt === 'function'
+                ? readCt(bodyEl)
+                : ((bodyEl && typeof bodyEl._contentType === 'string') ? bodyEl._contentType : '');
+
             const readRes = readMemorySlots();
             const memory = readRes.data;
             memory[`slot_${i}`] = data;
@@ -136,13 +165,23 @@
             }
             const data = readRes.data[`slot_${i}`];
             if (data && typeof data === 'object') {
+                const setRaw = getSetRawTextareaValue();
                 for (const item of SLOT_FIELD_MAP) {
                     const el = document.getElementById(item.id);
                     if (el) {
                         const val = data[item.key] || '';
                         el.value = val;
                         if (item.key === 'bodyStr') {
-                            el._rawBody = val;
+                            if (typeof setRaw === 'function') {
+                                setRaw(el, val, data.contentType || '');
+                            } else {
+                                el._rawBody = val;
+                                if (data.contentType) {
+                                    el._contentType = String(data.contentType);
+                                } else {
+                                    delete el._contentType;
+                                }
+                            }
                         }
                     }
                 }

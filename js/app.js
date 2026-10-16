@@ -36,6 +36,7 @@
             refreshInspector,
             initImporter,
             readRequestBody,
+            readRequestContentType,
             setRawTextareaValue
         } = root.PopUI;
 
@@ -47,6 +48,9 @@
 
         const getContentType = () => {
             const bodyEl = document.getElementById('req-body');
+            if (typeof readRequestContentType === 'function') {
+                return readRequestContentType(bodyEl);
+            }
             return (bodyEl && typeof bodyEl._contentType === 'string') ? bodyEl._contentType : '';
         };
 
@@ -169,76 +173,90 @@
 
         loadDemo('valid');
 
-        document.getElementById('btn-generate-test').addEventListener('click', async () => {
-            const panel = document.getElementById('result-panel');
-            try {
+        const btnGenerate = document.getElementById('btn-generate-test');
+        if (btnGenerate) {
+            btnGenerate.addEventListener('click', async () => {
+                if (btnGenerate.disabled) return;
+                btnGenerate.disabled = true;
+                const panel = document.getElementById('result-panel');
+                try {
+                    const inputs = {
+                        method: document.getElementById('req-method').value || 'POST',
+                        urlStr: document.getElementById('req-url').value,
+                        bodyStr: getBodyValue(),
+                        contentType: getContentType(),
+                        nonce: document.getElementById('req-nonce').value || 'n-test',
+                        timestampStr: document.getElementById('req-timestamp').value || Math.floor(Date.now() / 1000).toString()
+                    };
+
+                    if (!inputs.urlStr) {
+                        renderMissingUrlWarning(panel);
+                        return;
+                    }
+
+                    const gen = await root.PopCore.generateTestSignature(inputs);
+
+                    document.getElementById('req-digest').value = gen.reqDigest;
+                    document.getElementById('req-signature').value = gen.signature;
+                    document.getElementById('req-pubkey').value = gen.pubkeyPem;
+
+                    evalTimeInput.value = inputs.timestampStr;
+                    document.getElementById('req-timestamp').value = inputs.timestampStr;
+                    document.getElementById('req-nonce').value = inputs.nonce;
+                    document.getElementById('req-method').value = inputs.method;
+
+                    if (typeof resetInspector === 'function') resetInspector();
+                    showToast('✨ 새로운 서명이 생성되어 적용되었습니다!');
+                    renderGenerateSuccess(panel, gen);
+                    setOverheadVisible(false);
+                } catch (e) {
+                    renderGenerateError(panel, e);
+                } finally {
+                    btnGenerate.disabled = false;
+                }
+            });
+        }
+
+        const btnDiagnose = document.getElementById('btn-diagnose');
+        if (btnDiagnose) {
+            btnDiagnose.addEventListener('click', async () => {
+                if (btnDiagnose.disabled) return;
+                btnDiagnose.disabled = true;
+                const panel = document.getElementById('result-panel');
+                panel.classList.remove('empty');
+                panel.textContent = '진단 중...';
+
                 const inputs = {
-                    method: document.getElementById('req-method').value || 'POST',
-                    urlStr: document.getElementById('req-url').value,
+                    method: document.getElementById('req-method').value,
+                    urlStr: document.getElementById('req-url').value.trim(),
                     bodyStr: getBodyValue(),
                     contentType: getContentType(),
-                    nonce: document.getElementById('req-nonce').value || 'n-test',
-                    timestampStr: document.getElementById('req-timestamp').value || Math.floor(Date.now() / 1000).toString()
+                    nonce: document.getElementById('req-nonce').value,
+                    timestampStr: document.getElementById('req-timestamp').value,
+                    signature: document.getElementById('req-signature').value,
+                    pubkeyPem: document.getElementById('req-pubkey').value.trim(),
+                    reqDigest: document.getElementById('req-digest').value,
+                    evalTime: parseInt(evalTimeInput.value, 10)
                 };
 
-                if (!inputs.urlStr) {
-                    renderMissingUrlWarning(panel);
-                    return;
+                try {
+                    const result = await root.PopCore.diagnose(inputs);
+                    renderResult(result);
+                    if (typeof refreshInspector === 'function') {
+                        await refreshInspector();
+                    }
+
+                    if (!result.error && result.firstFailedStage === null) {
+                        setOverheadVisible(true);
+                    } else {
+                        setOverheadVisible(false);
+                    }
+                } catch (e) {
+                    panel.textContent = `오류 발생: ${e.message}`;
+                } finally {
+                    btnDiagnose.disabled = false;
                 }
-
-                const gen = await root.PopCore.generateTestSignature(inputs);
-
-                document.getElementById('req-digest').value = gen.reqDigest;
-                document.getElementById('req-signature').value = gen.signature;
-                document.getElementById('req-pubkey').value = gen.pubkeyPem;
-
-                evalTimeInput.value = inputs.timestampStr;
-                document.getElementById('req-timestamp').value = inputs.timestampStr;
-                document.getElementById('req-nonce').value = inputs.nonce;
-                document.getElementById('req-method').value = inputs.method;
-
-                if (typeof resetInspector === 'function') resetInspector();
-                showToast('✨ 새로운 서명이 생성되어 적용되었습니다!');
-                renderGenerateSuccess(panel, gen);
-                setOverheadVisible(false);
-            } catch (e) {
-                renderGenerateError(panel, e);
-            }
-        });
-
-        document.getElementById('btn-diagnose').addEventListener('click', async () => {
-            const panel = document.getElementById('result-panel');
-            panel.classList.remove('empty');
-            panel.textContent = '진단 중...';
-
-            const inputs = {
-                method: document.getElementById('req-method').value,
-                urlStr: document.getElementById('req-url').value.trim(),
-                bodyStr: getBodyValue(),
-                contentType: getContentType(),
-                nonce: document.getElementById('req-nonce').value,
-                timestampStr: document.getElementById('req-timestamp').value,
-                signature: document.getElementById('req-signature').value,
-                pubkeyPem: document.getElementById('req-pubkey').value.trim(),
-                reqDigest: document.getElementById('req-digest').value,
-                evalTime: parseInt(evalTimeInput.value, 10)
-            };
-
-            try {
-                const result = await root.PopCore.diagnose(inputs);
-                renderResult(result);
-                if (typeof refreshInspector === 'function') {
-                    await refreshInspector();
-                }
-
-                if (!result.error && result.firstFailedStage === null) {
-                    setOverheadVisible(true);
-                } else {
-                    setOverheadVisible(false);
-                }
-            } catch (e) {
-                panel.textContent = `오류 발생: ${e.message}`;
-            }
-        });
+            });
+        }
     });
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
