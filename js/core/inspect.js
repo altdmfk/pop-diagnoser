@@ -393,6 +393,18 @@
         return arcs.join('.');
     }
 
+    function isPointOnP256Curve(xBig, yBig) {
+        if (typeof xBig !== 'bigint' || typeof yBig !== 'bigint') return false;
+        const inField = xBig >= 0n && xBig < P256_P && yBig >= 0n && yBig < P256_P;
+        if (!inField) return false;
+        const lhs = modP(yBig * yBig, P256_P);
+        const x2 = modP(xBig * xBig, P256_P);
+        const x3 = modP(x2 * xBig, P256_P);
+        const ax = modP(P256_A * xBig, P256_P);
+        const rhs = modP(x3 + ax + P256_B, P256_P);
+        return lhs === rhs;
+    }
+
     async function inspectPublicKey(pemStr) {
         const extracted = extractPublicKeySpkiBytes(pemStr);
         if (!extracted.ok) {
@@ -423,8 +435,27 @@
             });
         }
 
-        // Parse AlgorithmIdentifier SEQUENCE
+        // Parse AlgorithmIdentifier SEQUENCE (reject if first inner element is PKCS#8 v0 or SEC1 v1 INTEGER)
         const algSeq = readDerTlv(spkiBytes, outerSeq.valueStart);
+        if (
+            algSeq &&
+            algSeq.tag === 0x02 &&
+            algSeq.length === 1 &&
+            (spkiBytes[algSeq.valueStart] === 0x00 || spkiBytes[algSeq.valueStart] === 0x01)
+        ) {
+            return createPubKeyFailReport({
+                warnings: [
+                    {
+                        code: 'PRIVATE_KEY_INPUT',
+                        message: '비밀키(PRIVATE KEY)가 감지되어 파싱을 중단했습니다. 본 진단기는 비밀키를 요구하지 않으며 공개키(PUBLIC KEY)만 사용합니다.'
+                    }
+                ],
+                error: {
+                    code: 'PRIVATE_KEY_REJECTED',
+                    message: `보안 경고: 비밀키(PRIVATE KEY)는 입력할 수 없습니다. 공개키(${PEM_PUBLIC_KEY_HEADER})만 입력해 주세요.`
+                }
+            });
+        }
         if (!algSeq || algSeq.tag !== 0x30 || algSeq.nextOffset > outerSeq.valueEnd) {
             return createPubKeyFailReport({
                 ...baseMeta,
@@ -534,17 +565,7 @@
         const yHex = bytesToHex(pointBytes.slice(33, 65));
         const xBig = BigInt('0x' + xHex);
         const yBig = BigInt('0x' + yHex);
-
-        const inField = xBig >= 0n && xBig < P256_P && yBig >= 0n && yBig < P256_P;
-        let onCurve = false;
-        if (inField) {
-            const lhs = modP(yBig * yBig, P256_P);
-            const x2 = modP(xBig * xBig, P256_P);
-            const x3 = modP(x2 * xBig, P256_P);
-            const ax = modP(P256_A * xBig, P256_P);
-            const rhs = modP(x3 + ax + P256_B, P256_P);
-            onCurve = lhs === rhs;
-        }
+        const onCurve = isPointOnP256Curve(xBig, yBig);
 
         if (!onCurve) {
             return createPubKeyFailReport({
@@ -581,6 +602,7 @@
         OID_EC_PUBLIC_KEY,
         OID_RSA_ENCRYPTION,
         OID_P256,
+        isPointOnP256Curve,
         detectAndDecodeSignature,
         inspectDerStructure,
         inspectSignature,

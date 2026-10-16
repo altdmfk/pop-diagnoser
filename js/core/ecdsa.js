@@ -17,26 +17,76 @@
     const PEM_PUBLIC_KEY_HEADER = "-----BEGIN PUBLIC KEY-----";
     const PEM_PUBLIC_KEY_FOOTER = "-----END PUBLIC KEY-----";
 
+    function getDerSequenceInnerOffset(view) {
+        if (!view || view.length < 5 || view[0] !== 0x30) return -1;
+        const lenByte = view[1];
+        if (lenByte === 0x80) return -1;
+        if (lenByte > 0x80) {
+            const numLenBytes = lenByte & 0x7f;
+            if (numLenBytes === 0 || numLenBytes > 3 || 2 + numLenBytes > view.length) {
+                return -1;
+            }
+            return 2 + numLenBytes;
+        }
+        return 2;
+    }
+
+    function isPrivateKeyDerBytes(bytes, excludeTwoIntSig = false) {
+        if (!bytes) return false;
+        const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        const innerOffset = getDerSequenceInnerOffset(view);
+        if (innerOffset === -1 || innerOffset + 3 > view.length) return false;
+        const isVersionInt =
+            view[innerOffset] === 0x02 &&
+            view[innerOffset + 1] === 0x01 &&
+            (view[innerOffset + 2] === 0x00 || view[innerOffset + 2] === 0x01);
+        if (!isVersionInt) return false;
+        if (excludeTwoIntSig && view[innerOffset + 2] === 0x01 && view[innerOffset + 3] === 0x02) {
+            return false;
+        }
+        return true;
+    }
+
+    function buildPrivateKeyRejectedResult() {
+        return {
+            ok: false,
+            code: 'PRIVATE_KEY_REJECTED',
+            message: `보안 경고: 비밀키(PRIVATE KEY)는 입력할 수 없습니다. 공개키(${PEM_PUBLIC_KEY_HEADER})만 입력해 주세요.`,
+            warnings: [
+                {
+                    code: 'PRIVATE_KEY_INPUT',
+                    message: '비밀키(PRIVATE KEY)가 감지되어 파싱을 중단했습니다. 본 진단기는 비밀키를 요구하지 않으며 공개키(PUBLIC KEY)만 사용합니다.'
+                }
+            ]
+        };
+    }
+
     function containsPrivateKeyMarker(str) {
         if (typeof str !== 'string') return false;
-        return /-----\s*(?:BEGIN|END)\s+[A-Z0-9 ]*PRIVATE KEY\s*-----/i.test(str) ||
-            /\bPRIVATE\s+KEY\b/i.test(str);
+        if (
+            /-----\s*(?:BEGIN|END)\s+[A-Z0-9 ]*PRIVATE KEY\s*-----/i.test(str) ||
+            /\bPRIVATE\s+KEY\b/i.test(str)
+        ) {
+            return true;
+        }
+        const trimmed = str.trim();
+        if (!trimmed || /-----/.test(trimmed)) return false;
+        const b64Candidate = trimmed.replace(/\s/g, '');
+        if (b64Candidate.length < 8 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64Candidate)) {
+            return false;
+        }
+        try {
+            const decoded = new Uint8Array(base64StandardDecode(b64Candidate));
+            return isPrivateKeyDerBytes(decoded, true);
+        } catch (e) {
+            return false;
+        }
     }
 
     function extractPublicKeySpkiBytes(pem) {
         const raw = String(pem ?? '').trim();
         if (containsPrivateKeyMarker(raw)) {
-            return {
-                ok: false,
-                code: 'PRIVATE_KEY_REJECTED',
-                message: `보안 경고: 비밀키(PRIVATE KEY)는 입력할 수 없습니다. 공개키(${PEM_PUBLIC_KEY_HEADER})만 입력해 주세요.`,
-                warnings: [
-                    {
-                        code: 'PRIVATE_KEY_INPUT',
-                        message: '비밀키(PRIVATE KEY)가 감지되어 파싱을 중단했습니다. 본 진단기는 비밀키를 요구하지 않으며 공개키(PUBLIC KEY)만 사용합니다.'
-                    }
-                ]
-            };
+            return buildPrivateKeyRejectedResult();
         }
 
         if (!raw) {
@@ -100,6 +150,10 @@
             };
         }
 
+        if (isPrivateKeyDerBytes(spkiBytes)) {
+            return buildPrivateKeyRejectedResult();
+        }
+
         return { ok: true, spkiBytes };
     }
 
@@ -108,6 +162,9 @@
         if (!extracted.ok) {
             const err = new Error(extracted.message);
             err.code = extracted.code;
+            if (extracted.warnings) {
+                err.warnings = extracted.warnings;
+            }
             throw err;
         }
 
@@ -164,7 +221,7 @@
         const rOrigLen = view[offset + 1];
         let rLen = rOrigLen;
         let rStart = offset + 2;
-        if (rLen === 0 || rStart + rLen > view.length) {
+        if (rLen === 0 || rLen >= 0x80 || rStart + rLen > view.length) {
             return { ok: false, message: 'DER r 성분의 길이가 0이거나 범위를 벗어났습니다.' };
         }
         const sOffset = rStart + rLen;
@@ -176,6 +233,8 @@
             rStart++;
             rLen--;
             rLeadingZeroStripped = true;
+        } else if ((view[rStart] & 0x80) !== 0) {
+            return { ok: false, message: 'DER r 성분이 음수(최상위 비트 1, 선행 0x00 누락)로 인코딩되어 있습니다.' };
         }
         if (rLen === 0 || rLen > HALF_SIGNATURE_BYTES) {
             return { ok: false, message: `DER r 성분의 유효 길이(${rLen}B)가 P-256 최대 길이(32B)를 초과합니다.` };
@@ -189,7 +248,7 @@
         const sOrigLen = view[offset + 1];
         let sLen = sOrigLen;
         let sStart = offset + 2;
-        if (sLen === 0 || sStart + sLen !== view.length) {
+        if (sLen === 0 || sLen >= 0x80 || sStart + sLen !== view.length) {
             return { ok: false, message: 'DER s 성분의 길이가 올바르지 않거나 뒤에 잔여 바이트가 남아 있습니다.' };
         }
         let sLeadingZeroStripped = false;
@@ -200,6 +259,8 @@
             sStart++;
             sLen--;
             sLeadingZeroStripped = true;
+        } else if ((view[sStart] & 0x80) !== 0) {
+            return { ok: false, message: 'DER s 성분이 음수(최상위 비트 1, 선행 0x00 누락)로 인코딩되어 있습니다.' };
         }
         if (sLen === 0 || sLen > HALF_SIGNATURE_BYTES) {
             return { ok: false, message: `DER s 성분의 유효 길이(${sLen}B)가 P-256 최대 길이(32B)를 초과합니다.` };
